@@ -1,6 +1,5 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 
 local lp = Players.LocalPlayer
@@ -69,22 +68,33 @@ toggleButton.MouseButton1Click:Connect(function()
 	toggleButton.BackgroundColor3 = enabled and Color3.fromRGB(89, 44, 47) or Color3.fromRGB(30, 30, 30)
 end)
 
--- Tween behind killer and match rotation
-local function tweenBehindKiller(killerHRP)
+-- Follow behind killer dynamically until stab
+local function followKiller(killerHRP)
 	if cooldown or daggerCooldown then return end
 	cooldown = true
 	daggerCooldown = true
-	
-	local targetPos = killerHRP.Position - killerHRP.CFrame.LookVector * behindDistance
-	local targetLookAt = killerHRP.Position + killerHRP.CFrame.LookVector
-	local targetCFrame = CFrame.new(targetPos, targetLookAt)
-	
-	local tweenInfo = TweenInfo.new(0.35, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
-	local tween = TweenService:Create(hrp, tweenInfo, {CFrame = targetCFrame})
-	
-	tween.Completed:Once(function()
-		-- Fire dagger immediately when tween ends
+
+	local following = true
+	local heartbeatConn
+
+	heartbeatConn = RunService.Heartbeat:Connect(function(delta)
+		if not following or not hrp.Parent or not killerHRP.Parent then
+			heartbeatConn:Disconnect()
+			return
+		end
+
+		local targetPos = killerHRP.Position - killerHRP.CFrame.LookVector * behindDistance
+		local targetCFrame = CFrame.new(targetPos, killerHRP.Position + killerHRP.CFrame.LookVector)
+
+		-- Smoothly interpolate position
+		hrp.CFrame = hrp.CFrame:Lerp(targetCFrame, 0.25)
+	end)
+
+	-- Fire dagger immediately when first positioned behind killer
+	task.delay(0.35, function()
+		following = false
 		daggerRemote:FireServer("UseActorAbility", "Dagger")
+
 		task.delay(30, function()
 			daggerCooldown = false
 		end)
@@ -92,8 +102,6 @@ local function tweenBehindKiller(killerHRP)
 			cooldown = false
 		end)
 	end)
-	
-	tween:Play()
 end
 
 -- Main loop
@@ -105,7 +113,7 @@ RunService.Heartbeat:Connect(function()
 				local kHRP = killer.HumanoidRootPart
 				local dist = (hrp.Position - kHRP.Position).Magnitude
 				if dist <= detectionRange then
-					tweenBehindKiller(kHRP)
+					followKiller(kHRP)
 					break
 				end
 			end
