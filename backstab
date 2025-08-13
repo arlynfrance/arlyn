@@ -21,6 +21,11 @@ toggleButton.TextSize = 20
 toggleButton.Text = "Backstab: OFF"
 toggleButton.Parent = screenGui
 
+-- Rounded corners for toggle
+local toggleCorner = Instance.new("UICorner")
+toggleCorner.CornerRadius = UDim.new(0, 5)
+toggleCorner.Parent = toggleButton
+
 -- Range Label
 local rangeLabel = Instance.new("TextLabel")
 rangeLabel.Size = UDim2.new(0, 150, 0, 20)
@@ -45,6 +50,15 @@ rangeBox.Text = "4"
 rangeBox.ClearTextOnFocus = false
 rangeBox.Parent = screenGui
 
+-- Rounded corners for bottom elements
+local rangeLabelCorner = Instance.new("UICorner")
+rangeLabelCorner.CornerRadius = UDim.new(0, 3)
+rangeLabelCorner.Parent = rangeLabel
+
+local rangeBoxCorner = Instance.new("UICorner")
+rangeBoxCorner.CornerRadius = UDim.new(0, 3)
+rangeBoxCorner.Parent = rangeBox
+
 -- Vars
 local enabled = false
 local cooldown = false
@@ -53,6 +67,7 @@ local range = 4
 local daggerRemote = ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Network"):WaitForChild("RemoteEvent")
 local killerNames = { "Jason", "c00lkidd", "JohnDoe", "1x1x1x1", "Noli" }
 local killersFolder = workspace:WaitForChild("Players"):WaitForChild("Killers")
+local BACKSTAB_COOLDOWN = 30 -- seconds
 
 -- GUI toggle
 toggleButton.MouseButton1Click:Connect(function()
@@ -99,12 +114,17 @@ RunService.Heartbeat:Connect(function()
                 local tween = TweenService:Create(hrp, tweenInfo, {CFrame = CFrame.new(behindCFrame.Position, behindCFrame.Position + kHRP.CFrame.LookVector)})
                 
                 tween:Play()
+
                 tween.Completed:Connect(function()
-                    -- Fire dagger immediately
-                    daggerRemote:FireServer("UseActorAbility", "Dagger")
-                    -- Keep behind killer until out of range
+                    local backstabDone = false
+
+                    -- Smooth dynamic follow while waiting 0.5s
                     local followConn
-                    followConn = RunService.Heartbeat:Connect(function()
+                    followConn = RunService.Heartbeat:Connect(function(dt)
+                        if backstabDone then
+                            followConn:Disconnect()
+                            return
+                        end
                         if not (char and char.Parent and kHRP and kHRP.Parent) then
                             followConn:Disconnect()
                             return
@@ -115,9 +135,30 @@ RunService.Heartbeat:Connect(function()
                             cooldown = false
                             return
                         end
-                        hrp.CFrame = CFrame.new(kHRP.Position - kHRP.CFrame.LookVector * 4.3, kHRP.Position + kHRP.CFrame.LookVector)
+
+                        local targetCFrame = kHRP.CFrame * CFrame.new(0, 0, -4.3)
+                        local distance = (hrp.Position - targetCFrame.Position).Magnitude
+                        local alpha = math.clamp(distance * 0.2, 0, 1) -- dynamic speed based on distance
+
+                        hrp.CFrame = hrp.CFrame:Lerp(
+                            CFrame.new(targetCFrame.Position, kHRP.Position + kHRP.CFrame.LookVector),
+                            alpha
+                        )
+                    end)
+
+                    -- Fire dagger after 0.5s and start 30s cooldown
+                    task.delay(0.5, function()
+                        daggerRemote:FireServer("UseActorAbility", "Dagger")
+                        backstabDone = true
+                        if followConn then followConn:Disconnect() end
+                        lastTarget = nil
+                        -- Keep cooldown active for 30 seconds
+                        task.delay(BACKSTAB_COOLDOWN, function()
+                            cooldown = false
+                        end)
                     end)
                 end)
+
                 break
             end
         end
