@@ -22,6 +22,10 @@ toggleButton.TextSize = 20
 toggleButton.Text = "Backstab: OFF"
 toggleButton.Parent = screenGui
 
+local toggleButtonCorner = Instance.new("UICorner")
+toggleButtonCorner.CornerRadius = UDim.new(0, 12)
+toggleButtonCorner.Parent = toggleButton
+
 -- Range Label
 local rangeLabel = Instance.new("TextLabel")
 rangeLabel.Size = UDim2.new(0, 150, 0, 20)
@@ -45,6 +49,10 @@ rangeBox.PlaceholderText = "Enter range (1 - 10)"
 rangeBox.Text = "4"
 rangeBox.ClearTextOnFocus = false
 rangeBox.Parent = screenGui
+
+local rangeBoxCorner = Instance.new("UICorner")
+rangeBoxCorner.CornerRadius = UDim.new(0, 8)
+rangeBoxCorner.Parent = rangeBox
 
 -- Vars
 local enabled = false
@@ -72,42 +80,19 @@ rangeBox.FocusLost:Connect(function()
 	end
 end)
 
--- Mode Toggle
-local mode = "Behind"
-local modeButton = Instance.new("TextButton")
-modeButton.Size = UDim2.new(0, 150, 0, 25)
-modeButton.Position = UDim2.new(0, 10, 0, 105)
-modeButton.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
-modeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-modeButton.Font = Enum.Font.SourceSans
-modeButton.TextSize = 16
-modeButton.Text = "Mode: Behind"
-modeButton.Parent = screenGui
-
-modeButton.MouseButton1Click:Connect(function()
-	if mode == "Behind" then
-		mode = "Around"
-	else
-		mode = "Behind"
-	end
-	modeButton.Text = "Mode: " .. mode
-end)
-
--- Helper function to check if player is behind target
+-- Helper function to check if player is behind target (always behind)
 local function isBehindTarget(hrp, targetHRP)
 	local distance = (hrp.Position - targetHRP.Position).Magnitude
 	if distance > range then
 		return false
 	end
 	
-	if mode == "Around" then
-		return true
-	else
-		local direction = -targetHRP.CFrame.LookVector
-		local toPlayer = (hrp.Position - targetHRP.Position)
-		return toPlayer:Dot(direction) > 0.5
-	end
+	local direction = -targetHRP.CFrame.LookVector
+	local toPlayer = (hrp.Position - targetHRP.Position)
+	return toPlayer:Dot(direction) > 0.5
 end
+
+local tweenDuration = 0.3 -- faster tween time
 
 -- Main loop
 RunService.Heartbeat:Connect(function()
@@ -126,49 +111,57 @@ RunService.Heartbeat:Connect(function()
 				cooldown = true
 				lastTarget = killer
 
-				-- Calculate target position behind killer
-				local behindPos = kHRP.Position - (kHRP.CFrame.LookVector * 0.3)
-				local targetCFrame = CFrame.new(behindPos, behindPos + kHRP.CFrame.LookVector)
-
-				-- Tween the player smoothly behind killer over 0.5 seconds
-				local tweenInfo = TweenInfo.new(0.5, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-				local tween = TweenService:Create(hrp, tweenInfo, {CFrame = targetCFrame})
-
 				local daggerUsed = false
-				tween:Play()
-
-				-- Align facing during tween
 				local alignConnection
+
+				-- Function to create and play tween to updated behind position
+				local function tweenToBehind()
+					if not (hrp and kHRP) then return end
+					local behindPos = kHRP.Position - (kHRP.CFrame.LookVector * 0.3)
+					local targetCFrame = CFrame.new(behindPos, behindPos + kHRP.CFrame.LookVector)
+					local tweenInfo = TweenInfo.new(tweenDuration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+					local tween = TweenService:Create(hrp, tweenInfo, {CFrame = targetCFrame})
+					tween:Play()
+					return tween
+				end
+
+				-- Start with initial tween
+				local currentTween = tweenToBehind()
+
+				-- Align facing and keep tweening behind continuously
 				alignConnection = RunService.Heartbeat:Connect(function()
 					if not (char and char.Parent and kHRP and kHRP.Parent) then
-						if alignConnection then alignConnection:Disconnect() end
+						alignConnection:Disconnect()
 						return
 					end
-					-- Keep looking towards the killer's facing direction smoothly
+
+					-- Align facing direction
 					local lookVector = kHRP.CFrame.LookVector
 					local currentPos = hrp.Position
 					hrp.CFrame = CFrame.new(currentPos, currentPos + lookVector)
 
-					-- Use dagger right after tween starts (only once)
+					-- Use dagger once after starting
 					if not daggerUsed then
 						daggerUsed = true
 						daggerRemote:FireServer("UseActorAbility", "Dagger")
 					end
+
+					-- If current tween finished or nil, start a new tween to updated position
+					if not currentTween or currentTween.PlaybackState == Enum.PlaybackState.Completed then
+						currentTween = tweenToBehind()
+					end
 				end)
 
-				-- When tween finishes, disconnect alignment and start cooldown wait
-				tween.Completed:Connect(function()
+				-- Wait until player leaves range to reset cooldown and lastTarget
+				task.spawn(function()
+					while isBehindTarget(hrp, kHRP) do
+						RunService.Heartbeat:Wait()
+					end
 					if alignConnection then
 						alignConnection:Disconnect()
 					end
-					-- Wait until player leaves range to reset cooldown and lastTarget
-					task.spawn(function()
-						while isBehindTarget(hrp, kHRP) do
-							RunService.Heartbeat:Wait()
-						end
-						lastTarget = nil
-						cooldown = false
-					end)
+					lastTarget = nil
+					cooldown = false
 				end)
 
 				break
