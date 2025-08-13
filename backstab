@@ -23,7 +23,7 @@ toggleButton.Text = "Backstab: OFF"
 toggleButton.Parent = screenGui
 
 local toggleButtonCorner = Instance.new("UICorner")
-toggleButtonCorner.CornerRadius = UDim.new(0, 12)
+toggleButtonCorner.CornerRadius = UDim.new(0, 6)
 toggleButtonCorner.Parent = toggleButton
 
 -- Range Label
@@ -51,7 +51,7 @@ rangeBox.ClearTextOnFocus = false
 rangeBox.Parent = screenGui
 
 local rangeBoxCorner = Instance.new("UICorner")
-rangeBoxCorner.CornerRadius = UDim.new(0, 8)
+rangeBoxCorner.CornerRadius = UDim.new(0, 4)
 rangeBoxCorner.Parent = rangeBox
 
 -- Vars
@@ -92,7 +92,8 @@ local function isBehindTarget(hrp, targetHRP)
 	return toPlayer:Dot(direction) > 0.5
 end
 
-local tweenDuration = 0.3 -- faster tween time
+local tweenDuration = 0.2 -- faster tween time
+local holdBehindTime = 0.5 -- time to stay behind killer after tween
 
 -- Main loop
 RunService.Heartbeat:Connect(function()
@@ -128,6 +129,14 @@ RunService.Heartbeat:Connect(function()
 				-- Start with initial tween
 				local currentTween = tweenToBehind()
 
+				-- Fire dagger once tween completes
+				currentTween.Completed:Connect(function()
+					if not daggerUsed then
+						daggerUsed = true
+						daggerRemote:FireServer("UseActorAbility", "Dagger")
+					end
+				end)
+
 				-- Align facing and keep tweening behind continuously
 				alignConnection = RunService.Heartbeat:Connect(function()
 					if not (char and char.Parent and kHRP and kHRP.Parent) then
@@ -135,28 +144,36 @@ RunService.Heartbeat:Connect(function()
 						return
 					end
 
-					-- Align facing direction
+					-- Align facing direction (works in shiftlock)
 					local lookVector = kHRP.CFrame.LookVector
 					local currentPos = hrp.Position
 					hrp.CFrame = CFrame.new(currentPos, currentPos + lookVector)
 
-					-- Use dagger once after starting
-					if not daggerUsed then
-						daggerUsed = true
-						daggerRemote:FireServer("UseActorAbility", "Dagger")
-					end
-
 					-- If current tween finished or nil, start a new tween to updated position
 					if not currentTween or currentTween.PlaybackState == Enum.PlaybackState.Completed then
 						currentTween = tweenToBehind()
+						-- Also connect dagger fire again only once, but dagger already used, so won't fire again
+						currentTween.Completed:Connect(function()
+							if not daggerUsed then
+								daggerUsed = true
+								daggerRemote:FireServer("UseActorAbility", "Dagger")
+							end
+						end)
 					end
 				end)
 
-				-- Wait until player leaves range to reset cooldown and lastTarget
+				-- Hold behind the killer for 0.5 seconds after tween before resetting cooldown
 				task.spawn(function()
+					local holdStart = tick()
+					while tick() - holdStart < holdBehindTime do
+						RunService.Heartbeat:Wait()
+					end
+
+					-- After hold time, wait until player leaves range to reset cooldown and lastTarget
 					while isBehindTarget(hrp, kHRP) do
 						RunService.Heartbeat:Wait()
 					end
+
 					if alignConnection then
 						alignConnection:Disconnect()
 					end
