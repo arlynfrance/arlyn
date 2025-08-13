@@ -107,7 +107,7 @@ RunService.Heartbeat:Connect(function()
 						alignConn:Disconnect()
 						return
 					end
-					local targetPos = kHRP.Position - (kHRP.CFrame.LookVector * 7.2)
+					local targetPos = kHRP.Position - (kHRP.CFrame.LookVector * 5.6)
 					local currentCFrame = hrp.CFrame
 					local newCFrame = CFrame.new(
 						currentCFrame.Position:Lerp(targetPos, 0.25), -- smooth movement
