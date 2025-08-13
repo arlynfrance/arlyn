@@ -1,7 +1,6 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local TweenService = game:GetService("TweenService")
 local lp = Players.LocalPlayer
 
 -- GUI Setup
@@ -100,7 +99,7 @@ RunService.Heartbeat:Connect(function()
 				daggerCooldown = true
 				lastTarget = killer
 
-				-- Dynamic follow: always 4.0 studs behind, smoother and faster
+				-- Dynamic follow: always 4.0 studs behind, slightly faster
 				local alignConn
 				alignConn = RunService.Heartbeat:Connect(function()
 					if not (char and char.Parent and kHRP and kHRP.Parent) then
@@ -109,24 +108,25 @@ RunService.Heartbeat:Connect(function()
 					end
 					local targetPos = kHRP.Position - (kHRP.CFrame.LookVector * 4.0)
 					local currentCFrame = hrp.CFrame
-					-- Faster Lerp for more responsive follow while still smooth
 					local newCFrame = CFrame.new(
-						currentCFrame.Position:Lerp(targetPos, 0.45),
+						currentCFrame.Position:Lerp(targetPos, 0.6), -- slightly faster
 						targetPos + kHRP.CFrame.LookVector
 					)
 					hrp.CFrame = newCFrame
 				end)
 
-				-- Fire dagger after 0.5 seconds (once behind the killer)
-				task.delay(0.5, function()
+				-- Fire dagger 0.2 seconds after tweening ends
+				task.delay(0.5, function() -- give a little time for the tween to finish
 					alignConn:Disconnect()
-					daggerRemote:FireServer("UseActorAbility", "Dagger")
-					task.delay(30, function()
-						daggerCooldown = false
-					end)
-					task.delay(2, function()
-						lastTarget = nil
-						cooldown = false
+					task.delay(0.2, function()
+						daggerRemote:FireServer("UseActorAbility", "Dagger")
+						task.delay(30, function()
+							daggerCooldown = false
+						end)
+						task.delay(2, function()
+							lastTarget = nil
+							cooldown = false
+						end)
 					end)
 				end)
 
