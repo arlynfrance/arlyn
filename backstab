@@ -3,27 +3,24 @@ local Players = game:GetService("Players")
 local TweenService = game:GetService("TweenService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
---// Player setup
+--// Player and character references
 local lp = Players.LocalPlayer
 local char = lp.Character or lp.CharacterAdded:Wait()
 local hrp = char:WaitForChild("HumanoidRootPart")
 
---// Settings
-local tweenTime = 0.35
+--// Variables
+local detectionRange = 5
 local behindDistance = 3.8
+local tweenTime = 0.35
 local cooldownTime = 30
-local detectionRange = 20
-
+local enabled = false
 local canTween = true
-local killer = nil
+local killer
 
 --// GUI Setup
 local playerGui = lp:WaitForChild("PlayerGui")
-
 local existingGui = playerGui:FindFirstChild("BackstabToggleGui")
-if existingGui then
-	existingGui:Destroy()
-end
+if existingGui then existingGui:Destroy() end
 
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "BackstabToggleGui"
@@ -31,75 +28,63 @@ screenGui.ResetOnSpawn = false
 screenGui.Parent = playerGui
 
 -- Toggle Button
-local toggleButton = Instance.new("TextButton")
-toggleButton.Size = UDim2.new(0, 150, 0, 25)
-toggleButton.Position = UDim2.new(0, 10, 0, 10)
-toggleButton.BackgroundColor3 = Color3.fromRGB(89, 44, 47)
-toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-toggleButton.Font = Enum.Font.SourceSans
-toggleButton.TextSize = 16
-toggleButton.Text = "Auto Backstab: OFF"
-toggleButton.Parent = screenGui
-
-local toggleCorner = Instance.new("UICorner")
-toggleCorner.CornerRadius = UDim.new(0, 6)
-toggleCorner.Parent = toggleButton
+local toggleBtn = Instance.new("TextButton")
+toggleBtn.Size = UDim2.new(0, 100, 0, 30)
+toggleBtn.Position = UDim2.new(0, 10, 0, 10)
+toggleBtn.BackgroundColor3 = Color3.fromRGB(89, 44, 47)
+toggleBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleBtn.Text = "OFF"
+toggleBtn.Parent = screenGui
 
 -- Range Box
 local rangeBox = Instance.new("TextBox")
-rangeBox.Size = UDim2.new(0, 150, 0, 25)
-rangeBox.Position = UDim2.new(0, 10, 0, 45)
-rangeBox.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+rangeBox.Size = UDim2.new(0, 100, 0, 30)
+rangeBox.Position = UDim2.new(0, 10, 0, 50)
+rangeBox.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
 rangeBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-rangeBox.Font = Enum.Font.SourceSans
-rangeBox.TextSize = 16
 rangeBox.Text = tostring(detectionRange)
 rangeBox.Parent = screenGui
 
-local rangeCorner = Instance.new("UICorner")
-rangeCorner.CornerRadius = UDim.new(0, 6)
-rangeCorner.Parent = rangeBox
-
 -- @mocksss Label
 local mockLabel = Instance.new("TextLabel")
-mockLabel.Size = UDim2.new(0, 150, 0, 25)
-mockLabel.Position = UDim2.new(0, 10, 0, 75)
-mockLabel.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+mockLabel.Size = UDim2.new(0, 100, 0, 20)
+mockLabel.Position = UDim2.new(0, 10, 0, 85)
+mockLabel.BackgroundTransparency = 1
 mockLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-mockLabel.Font = Enum.Font.SourceSans
-mockLabel.TextSize = 16
 mockLabel.Text = "@mocksss"
 mockLabel.Parent = screenGui
 
-local mockCorner = Instance.new("UICorner")
-mockCorner.CornerRadius = UDim.new(0, 6)
-mockCorner.Parent = mockLabel
-
---// Toggle Logic
-local enabled = false
-toggleButton.MouseButton1Click:Connect(function()
+--// GUI Logic
+toggleBtn.MouseButton1Click:Connect(function()
 	enabled = not enabled
 	if enabled then
-		toggleButton.BackgroundColor3 = Color3.fromRGB(89, 44, 47)
-		toggleButton.Text = "Auto Backstab: ON"
+		toggleBtn.Text = "ON"
 	else
-		toggleButton.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
-		toggleButton.Text = "Auto Backstab: OFF"
+		toggleBtn.Text = "OFF"
 	end
 end)
 
---// Range Box Logic
-rangeBox.FocusLost:Connect(function(enterPressed)
-	if tonumber(rangeBox.Text) then
-		detectionRange = tonumber(rangeBox.Text)
+rangeBox.FocusLost:Connect(function()
+	local num = tonumber(rangeBox.Text)
+	if num then
+		if num > 10 then
+			num = 10
+			rangeBox.Text = "10"
+		end
+		detectionRange = num
+	else
+		rangeBox.Text = tostring(detectionRange)
 	end
 end)
 
---// Detect Killer
+--// Killer Detection
 local function findKiller()
 	for _, plr in pairs(Players:GetPlayers()) do
-		if plr ~= lp and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
-			return plr
+		if plr ~= lp and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") and plr.Character:FindFirstChild("Humanoid") then
+			-- In Forsaken, you'd detect via tags or weapons, here simplified to nearest alive
+			if plr.Character.Humanoid.Health > 0 then
+				return plr
+			end
 		end
 	end
 	return nil
@@ -120,8 +105,8 @@ local function tweenBehindKiller(killerHRP)
 
 	tween:Play()
 	tween.Completed:Connect(function()
-		-- Instant dagger fire
-		ReplicatedStorage.Events.Dagger:FireServer()
+		-- Fire dagger instantly
+		ReplicatedStorage:WaitForChild("Events"):WaitForChild("Dagger"):FireServer()
 		task.delay(cooldownTime, function()
 			canTween = true
 		end)
