@@ -11,13 +11,15 @@ local daggerRemote = ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Net
 local enabled = false
 local daggerCooldown = false
 local cooldown = false
-local range = 4.0 -- studs behind killer
+local rangeBehind = 4.0 -- studs behind killer
+local detectionRange = 10 -- studs to detect killer
 
 -- GUI
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "BackstabGui"
 screenGui.Parent = lp:WaitForChild("PlayerGui")
 
+-- Toggle button
 local toggleButton = Instance.new("TextButton")
 toggleButton.Size = UDim2.new(0, 150, 0, 40)
 toggleButton.Position = UDim2.new(0, 10, 0, 10)
@@ -28,9 +30,9 @@ toggleButton.Font = Enum.Font.SourceSansBold
 toggleButton.TextSize = 20
 toggleButton.Parent = screenGui
 
-local corner = Instance.new("UICorner")
-corner.CornerRadius = UDim.new(0, 6)
-corner.Parent = toggleButton
+local toggleCorner = Instance.new("UICorner")
+toggleCorner.CornerRadius = UDim.new(0, 6)
+toggleCorner.Parent = toggleButton
 
 toggleButton.MouseButton1Click:Connect(function()
 	enabled = not enabled
@@ -38,21 +40,55 @@ toggleButton.MouseButton1Click:Connect(function()
 	toggleButton.BackgroundColor3 = enabled and Color3.fromRGB(89, 44, 47) or Color3.fromRGB(30, 30, 30)
 end)
 
--- Tween behind killer with rotation match
+-- Range input
+local rangeLabel = Instance.new("TextLabel")
+rangeLabel.Size = UDim2.new(0, 150, 0, 20)
+rangeLabel.Position = UDim2.new(0, 10, 0, 60)
+rangeLabel.BackgroundTransparency = 1
+rangeLabel.Text = "Range: " .. tostring(detectionRange)
+rangeLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+rangeLabel.Font = Enum.Font.SourceSans
+rangeLabel.TextSize = 18
+rangeLabel.Parent = screenGui
+
+local rangeBox = Instance.new("TextBox")
+rangeBox.Size = UDim2.new(0, 150, 0, 30)
+rangeBox.Position = UDim2.new(0, 10, 0, 85)
+rangeBox.BackgroundColor3 = Color3.fromRGB(45, 45, 45)
+rangeBox.Text = tostring(detectionRange)
+rangeBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+rangeBox.Font = Enum.Font.SourceSans
+rangeBox.TextSize = 18
+rangeBox.Parent = screenGui
+
+local rangeCorner = Instance.new("UICorner")
+rangeCorner.CornerRadius = UDim.new(0, 6)
+rangeCorner.Parent = rangeBox
+
+rangeBox.FocusLost:Connect(function(enterPressed)
+	if enterPressed then
+		local num = tonumber(rangeBox.Text)
+		if num and num > 0 then
+			detectionRange = num
+			rangeLabel.Text = "Range: " .. tostring(detectionRange)
+		end
+	end
+end)
+
+-- Tween behind killer with rotation
 local function tweenBehindKiller(killerHRP)
 	if cooldown or daggerCooldown then return end
 	cooldown = true
 	daggerCooldown = true
 	
-	local targetPos = killerHRP.Position - killerHRP.CFrame.LookVector * range
+	local targetPos = killerHRP.Position - killerHRP.CFrame.LookVector * rangeBehind
 	local targetLookAt = killerHRP.Position + killerHRP.CFrame.LookVector
-	local targetCFrame = CFrame.new(targetPos, targetLookAt) -- match killer facing direction
+	local targetCFrame = CFrame.new(targetPos, targetLookAt)
 	
 	local tweenInfo = TweenInfo.new(0.35, Enum.EasingStyle.Sine, Enum.EasingDirection.Out)
 	local tween = TweenService:Create(hrp, tweenInfo, {CFrame = targetCFrame})
 	
 	tween.Completed:Once(function()
-		-- Fire dagger immediately
 		daggerRemote:FireServer("UseActorAbility", "Dagger")
 		task.delay(30, function()
 			daggerCooldown = false
@@ -72,7 +108,7 @@ RunService.Heartbeat:Connect(function()
 			if player ~= lp and player.Character and player.Character:FindFirstChild("HumanoidRootPart") then
 				local killerHRP = player.Character.HumanoidRootPart
 				local dist = (hrp.Position - killerHRP.Position).Magnitude
-				if dist <= 10 then -- detection range
+				if dist <= detectionRange then
 					tweenBehindKiller(killerHRP)
 					break
 				end
