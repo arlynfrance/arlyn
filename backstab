@@ -33,7 +33,7 @@ rangeLabel.TextSize = 16
 rangeLabel.Text = "Range:"
 rangeLabel.Parent = screenGui
 
--- TextBox for Range Input
+-- Range Input
 local rangeBox = Instance.new("TextBox")
 rangeBox.Size = UDim2.new(0, 150, 0, 25)
 rangeBox.Position = UDim2.new(0, 10, 0, 75)
@@ -47,24 +47,24 @@ rangeBox.ClearTextOnFocus = false
 rangeBox.Parent = screenGui
 Instance.new("UICorner", rangeBox).CornerRadius = UDim.new(0, 6)
 
--- Vars
+-- Variables
 local enabled = false
 local cooldown = false
-local daggerCooldownActive = false
+local daggerCooldown = false
+local lastTarget = nil
 local range = 4
-local daggerCooldownTime = 30
 local daggerRemote = ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Network"):WaitForChild("RemoteEvent")
 local killerNames = { "Jason", "c00lkidd", "JohnDoe", "1x1x1x1", "Noli" }
 local killersFolder = workspace:WaitForChild("Players"):WaitForChild("Killers")
 
--- GUI toggle
+-- Toggle button logic
 toggleButton.MouseButton1Click:Connect(function()
 	enabled = not enabled
 	toggleButton.Text = "Backstab: " .. (enabled and "ON" or "OFF")
 	toggleButton.BackgroundColor3 = enabled and Color3.fromRGB(89, 44, 47) or Color3.fromRGB(30, 30, 30)
 end)
 
--- TextBox Range Handling
+-- Range input handling
 rangeBox.FocusLost:Connect(function()
 	local input = tonumber(rangeBox.Text)
 	if input and input >= 1 and input <= 10 then
@@ -74,31 +74,18 @@ rangeBox.FocusLost:Connect(function()
 	end
 end)
 
--- Helper: is behind target
+-- Helper: check if behind
 local function isBehindTarget(hrp, targetHRP)
 	local distance = (hrp.Position - targetHRP.Position).Magnitude
-	if distance > range then
-		return false
-	end
+	if distance > range then return false end
 	local direction = -targetHRP.CFrame.LookVector
 	local toPlayer = (hrp.Position - targetHRP.Position)
 	return toPlayer:Dot(direction) > 0.5
 end
 
--- Helper: tween behind killer
-local function tweenToBehind(hrp, kHRP)
-	local behindPos = kHRP.Position - (kHRP.CFrame.LookVector * 0.3)
-	local cf = CFrame.new(behindPos, behindPos + kHRP.CFrame.LookVector)
-	local tweenInfo = TweenInfo.new(0.2, Enum.EasingStyle.Linear, Enum.EasingDirection.Out)
-	local tween = TweenService:Create(hrp, tweenInfo, {CFrame = cf})
-	tween:Play()
-	return tween
-end
-
 -- Main loop
 RunService.Heartbeat:Connect(function()
-	if not enabled or cooldown or daggerCooldownActive then return end
-
+	if not enabled or cooldown or daggerCooldown then return end
 	local char = lp.Character
 	if not (char and char:FindFirstChild("HumanoidRootPart")) then return end
 	local hrp = char.HumanoidRootPart
@@ -108,40 +95,38 @@ RunService.Heartbeat:Connect(function()
 		if killer and killer:FindFirstChild("HumanoidRootPart") then
 			local kHRP = killer.HumanoidRootPart
 
-			if isBehindTarget(hrp, kHRP) then
+			if isBehindTarget(hrp, kHRP) and killer ~= lastTarget then
 				cooldown = true
+				daggerCooldown = true
+				lastTarget = killer
 
-				-- Tween once
-				local tween = tweenToBehind(hrp, kHRP)
-
-				-- When tween finishes, fire dagger
-				tween.Completed:Connect(function()
-					if isBehindTarget(hrp, kHRP) then
-						daggerRemote:FireServer("UseActorAbility", "Dagger")
-						daggerCooldownActive = true
-						task.delay(daggerCooldownTime, function()
-							daggerCooldownActive = false
-						end)
-					end
-				end)
-
-				-- Keep facing killer for 0.5s
-				local startTime = tick()
+				-- Dynamic tween: always 7.2 studs behind, following the killer
 				local alignConn
 				alignConn = RunService.Heartbeat:Connect(function()
-					if tick() - startTime >= 0.5 or not kHRP or not kHRP.Parent then
+					if not (char and char.Parent and kHRP and kHRP.Parent) then
 						alignConn:Disconnect()
 						return
 					end
-					hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + kHRP.CFrame.LookVector)
+					local targetPos = kHRP.Position - (kHRP.CFrame.LookVector * 7.2)
+					local currentCFrame = hrp.CFrame
+					local newCFrame = CFrame.new(
+						currentCFrame.Position:Lerp(targetPos, 0.25), -- smooth movement
+						targetPos + kHRP.CFrame.LookVector
+					)
+					hrp.CFrame = newCFrame
 				end)
 
-				-- Reset cooldown after leaving range
-				task.delay(2, function()
-					while isBehindTarget(hrp, kHRP) do
-						RunService.Heartbeat:Wait()
-					end
-					cooldown = false
+				-- Fire dagger after 0.5 seconds (once behind the killer)
+				task.delay(0.5, function()
+					alignConn:Disconnect()
+					daggerRemote:FireServer("UseActorAbility", "Dagger")
+					task.delay(30, function()
+						daggerCooldown = false
+					end)
+					task.delay(2, function()
+						lastTarget = nil
+						cooldown = false
+					end)
 				end)
 
 				break
