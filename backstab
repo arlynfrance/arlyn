@@ -71,7 +71,7 @@ local daggerCooldownTime = 30 -- 30 seconds cooldown
 toggleButton.MouseButton1Click:Connect(function()
 	enabled = not enabled
 	toggleButton.Text = "Backstab: " .. (enabled and "ON" or "OFF")
-	toggleButton.BackgroundColor3 = enabled and Color3.fromRGB(50, 150, 50) or Color3.fromRGB(30, 30, 30)
+	toggleButton.BackgroundColor3 = enabled and Color3.fromRGB(220, 250, 220)
 end)
 
 -- TextBox Range Handling
@@ -101,7 +101,7 @@ local holdBehindTime = 0.5 -- time to stay behind killer after tween
 
 -- Main loop
 RunService.Heartbeat:Connect(function()
-	if not enabled or cooldown then return end
+	if not enabled or cooldown or daggerCooldownActive then return end
 
 	local char = lp.Character
 	if not (char and char:FindFirstChild("HumanoidRootPart")) then return end
@@ -199,3 +199,4 @@ RunService.Heartbeat:Connect(function()
 		end
 	end
 end)
+
