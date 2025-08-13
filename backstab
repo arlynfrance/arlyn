@@ -1,4 +1,4 @@
--- Place this LocalScript in StarterPlayerScripts
+-- LocalScript: place in StarterPlayerScripts
 
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -27,6 +27,10 @@ toggleButton.TextSize = 20
 toggleButton.Text = "Backstab: OFF"
 toggleButton.Parent = screenGui
 
+local toggleCorner = Instance.new("UICorner")
+toggleCorner.CornerRadius = UDim.new(0, 6) -- 6px radius
+toggleCorner.Parent = toggleButton
+
 -- Range Label
 local rangeLabel = Instance.new("TextLabel")
 rangeLabel.Size = UDim2.new(0, 150, 0, 20)
@@ -51,6 +55,10 @@ rangeBox.Text = "4"
 rangeBox.ClearTextOnFocus = false
 rangeBox.Parent = screenGui
 
+local rangeCorner = Instance.new("UICorner")
+rangeCorner.CornerRadius = UDim.new(0, 4) -- 4px radius
+rangeCorner.Parent = rangeBox
+
 -- Vars
 local enabled = false
 local cooldown = false
@@ -64,7 +72,7 @@ local killersFolder = workspace:WaitForChild("Players"):WaitForChild("Killers")
 toggleButton.MouseButton1Click:Connect(function()
 	enabled = not enabled
 	toggleButton.Text = "Backstab: " .. (enabled and "ON" or "OFF")
-	toggleButton.BackgroundColor3 = enabled and Color3.fromRGB(50, 150, 50) or Color3.fromRGB(30, 30, 30)
+	toggleButton.BackgroundColor3 = enabled and Color3.fromRGB(89, 44, 47) or Color3.fromRGB(30, 30, 30)
 end)
 
 -- TextBox Range Handling
@@ -73,7 +81,7 @@ rangeBox.FocusLost:Connect(function()
 	if input and input >= 1 and input <= 10 then
 		range = input
 	else
-		rangeBox.Text = tostring(range) -- Revert to last valid value
+		rangeBox.Text = tostring(range)
 	end
 end)
 
@@ -105,7 +113,7 @@ RunService.Heartbeat:Connect(function()
 				cooldown = true
 				lastTarget = killer
 
-				-- Exact 4.3 studs behind killer at this moment
+				-- Exact 4.3 studs behind killer
 				local behindPos = kHRP.Position - (kHRP.CFrame.LookVector * 4.3)
 				local targetCFrame = CFrame.new(behindPos, kHRP.Position)
 
