@@ -63,6 +63,10 @@ local daggerRemote = ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Net
 local killerNames = { "Jason", "c00lkidd", "JohnDoe", "1x1x1x1", "Noli" }
 local killersFolder = workspace:WaitForChild("Players"):WaitForChild("Killers")
 
+-- Dagger cooldown vars
+local daggerCooldownActive = false
+local daggerCooldownTime = 30 -- 30 seconds cooldown
+
 -- GUI toggle
 toggleButton.MouseButton1Click:Connect(function()
 	enabled = not enabled
@@ -129,11 +133,16 @@ RunService.Heartbeat:Connect(function()
 				-- Start with initial tween
 				local currentTween = tweenToBehind()
 
-				-- Fire dagger once tween completes
+				-- Fire dagger once tween completes, respecting cooldown
 				currentTween.Completed:Connect(function()
-					if not daggerUsed then
+					if not daggerUsed and not daggerCooldownActive then
 						daggerUsed = true
+						daggerCooldownActive = true
 						daggerRemote:FireServer("UseActorAbility", "Dagger")
+
+						task.delay(daggerCooldownTime, function()
+							daggerCooldownActive = false
+						end)
 					end
 				end)
 
@@ -152,11 +161,15 @@ RunService.Heartbeat:Connect(function()
 					-- If current tween finished or nil, start a new tween to updated position
 					if not currentTween or currentTween.PlaybackState == Enum.PlaybackState.Completed then
 						currentTween = tweenToBehind()
-						-- Also connect dagger fire again only once, but dagger already used, so won't fire again
 						currentTween.Completed:Connect(function()
-							if not daggerUsed then
+							if not daggerUsed and not daggerCooldownActive then
 								daggerUsed = true
+								daggerCooldownActive = true
 								daggerRemote:FireServer("UseActorAbility", "Dagger")
+
+								task.delay(daggerCooldownTime, function()
+									daggerCooldownActive = false
+								end)
 							end
 						end)
 					end
