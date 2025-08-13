@@ -130,7 +130,7 @@ RunService.Heartbeat:Connect(function()
 					return tween
 				end
 
-				-- Start with initial tween
+				-- Start with initial tween once
 				local currentTween = tweenToBehind()
 
 				-- Fire dagger once tween completes, respecting cooldown
@@ -146,33 +146,16 @@ RunService.Heartbeat:Connect(function()
 					end
 				end)
 
-				-- Align facing and keep tweening behind continuously
+				-- Align facing only (no more tweening)
 				alignConnection = RunService.Heartbeat:Connect(function()
 					if not (char and char.Parent and kHRP and kHRP.Parent) then
 						alignConnection:Disconnect()
 						return
 					end
 
-					-- Align facing direction (works in shiftlock)
 					local lookVector = kHRP.CFrame.LookVector
 					local currentPos = hrp.Position
 					hrp.CFrame = CFrame.new(currentPos, currentPos + lookVector)
-
-					-- If current tween finished or nil, start a new tween to updated position
-					if not currentTween or currentTween.PlaybackState == Enum.PlaybackState.Completed then
-						currentTween = tweenToBehind()
-						currentTween.Completed:Connect(function()
-							if not daggerUsed and not daggerCooldownActive then
-								daggerUsed = true
-								daggerCooldownActive = true
-								daggerRemote:FireServer("UseActorAbility", "Dagger")
-
-								task.delay(daggerCooldownTime, function()
-									daggerCooldownActive = false
-								end)
-							end
-						end)
-					end
 				end)
 
 				-- Hold behind the killer for 0.5 seconds after tween before resetting cooldown
@@ -199,4 +182,3 @@ RunService.Heartbeat:Connect(function()
 		end
 	end
 end)
-
