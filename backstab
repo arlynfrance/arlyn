@@ -1,113 +1,139 @@
--- Services
-local TweenService = game:GetService("TweenService")
-local RunService = game:GetService("RunService")
 local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
 
 local lp = Players.LocalPlayer
-local killersFolder = workspace:WaitForChild("Killers") -- adjust if needed
-local daggerRemote = game.ReplicatedStorage:WaitForChild("DaggerRemote") -- adjust if needed
+local char = lp.Character or lp.CharacterAdded:Wait()
+local hrp = char:WaitForChild("HumanoidRootPart")
+local daggerRemote = ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Network"):WaitForChild("RemoteEvent")
 
--- Constants
-local BACKSTAB_DISTANCE = 4.3
-local DAGGER_DELAY = 0.5
-local STOP_DELAY = 0.15
-local killerNames = {"Killer1", "Killer2"} -- replace with actual killer names
-
--- State
 local enabled = false
+local daggerCooldown = false
 local cooldown = false
-local lastTarget = nil
+local behindDistance = 4.0 -- studs behind killer
+local detectionRange = 10 -- default detection range
 
--- GUI Setup
-local ScreenGui = Instance.new("ScreenGui")
-ScreenGui.Name = "BackstabUI"
-ScreenGui.Parent = lp:WaitForChild("PlayerGui")
+-- Killers setup
+local killerNames = { "Jason", "c00lkidd", "JohnDoe", "1x1x1x1", "Noli" }
+local killersFolder = workspace:WaitForChild("Players"):WaitForChild("Killers")
 
-local ToggleButton = Instance.new("TextButton")
-ToggleButton.Name = "ToggleButton"
-ToggleButton.Size = UDim2.new(0, 120, 0, 40)
-ToggleButton.Position = UDim2.new(0, 20, 0, 20)
-ToggleButton.Text = "Backstab: OFF"
-ToggleButton.BackgroundColor3 = Color3.fromRGB(128, 128, 128) -- initial gray color
-ToggleButton.TextColor3 = Color3.new(1,1,1)
-ToggleButton.Parent = ScreenGui
+-- GUI
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "BackstabToggleGui"
+screenGui.Parent = lp:WaitForChild("PlayerGui")
 
-local UICorner = Instance.new("UICorner")
-UICorner.CornerRadius = UDim.new(0, 5)
-UICorner.Parent = ToggleButton
+-- Toggle button
+local toggleButton = Instance.new("TextButton")
+toggleButton.Size = UDim2.new(0, 150, 0, 40)
+toggleButton.Position = UDim2.new(0, 10, 0, 10)
+toggleButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleButton.Font = Enum.Font.SourceSansBold
+toggleButton.TextSize = 20
+toggleButton.Text = "Backstab: OFF"
+toggleButton.Parent = screenGui
 
-ToggleButton.MouseButton1Click:Connect(function()
+local toggleCorner = Instance.new("UICorner")
+toggleCorner.CornerRadius = UDim.new(0, 6)
+toggleCorner.Parent = toggleButton
+
+toggleButton.MouseButton1Click:Connect(function()
 	enabled = not enabled
-	if enabled then
-		ToggleButton.BackgroundColor3 = Color3.fromRGB(245, 93, 66)
-		ToggleButton.Text = "Backstab: ON"
+	toggleButton.Text = "Backstab: " .. (enabled and "ON" or "OFF")
+	toggleButton.BackgroundColor3 = enabled and Color3.fromRGB(89, 44, 47) or Color3.fromRGB(30, 30, 30)
+end)
+
+-- Range input box
+local rangeBox = Instance.new("TextBox")
+rangeBox.Size = UDim2.new(0, 150, 0, 25)
+rangeBox.Position = UDim2.new(0, 10, 0, 55)
+rangeBox.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+rangeBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+rangeBox.Font = Enum.Font.SourceSans
+rangeBox.TextSize = 16
+rangeBox.PlaceholderText = "Enter range (1 - 10)"
+rangeBox.Text = tostring(detectionRange)
+rangeBox.ClearTextOnFocus = false
+rangeBox.Parent = screenGui
+
+local rangeCorner = Instance.new("UICorner")
+rangeCorner.CornerRadius = UDim.new(0, 6)
+rangeCorner.Parent = rangeBox
+
+rangeBox.FocusLost:Connect(function()
+	local input = tonumber(rangeBox.Text)
+	if input and input >= 1 and input <= 100 then
+		detectionRange = input
 	else
-		ToggleButton.BackgroundColor3 = Color3.fromRGB(128, 128, 128)
-		ToggleButton.Text = "Backstab: OFF"
+		rangeBox.Text = tostring(detectionRange)
 	end
 end)
 
--- Helper function to check if player is behind target
-local function isBehindTarget(hrp, targetHRP)
-	local relative = targetHRP.CFrame:PointToObjectSpace(hrp.Position)
-	return relative.Z < 0 -- behind if Z is negative in target space
+-- Replace mode button with @mocksss label
+local mockLabel = Instance.new("TextLabel")
+mockLabel.Size = UDim2.new(0, 150, 0, 25)
+mockLabel.Position = UDim2.new(0, 10, 0, 105)
+mockLabel.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+mockLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+mockLabel.Font = Enum.Font.SourceSans
+mockLabel.TextSize = 16
+mockLabel.Text = "@mocksss"
+mockLabel.Parent = screenGui
+
+local mockCorner = Instance.new("UICorner")
+mockCorner.CornerRadius = UDim.new(0, 6)
+mockCorner.Parent = mockLabel
+
+-- Follow behind killer dynamically until stab
+local function followKiller(killerHRP)
+	if cooldown or daggerCooldown then return end
+	cooldown = true
+	daggerCooldown = true
+
+	local following = true
+	local heartbeatConn
+
+	heartbeatConn = RunService.Heartbeat:Connect(function(delta)
+		if not following or not hrp.Parent or not killerHRP.Parent then
+			heartbeatConn:Disconnect()
+			return
+		end
+
+		local targetPos = killerHRP.Position - killerHRP.CFrame.LookVector * behindDistance
+		local targetCFrame = CFrame.new(targetPos, killerHRP.Position + killerHRP.CFrame.LookVector)
+
+		-- Smoothly interpolate position
+		hrp.CFrame = hrp.CFrame:Lerp(targetCFrame, 0.25)
+	end)
+
+	-- Fire dagger immediately when first positioned behind killer
+	task.delay(0.35, function()
+		following = false
+		daggerRemote:FireServer("UseActorAbility", "Dagger")
+
+		task.delay(30, function()
+			daggerCooldown = false
+		end)
+		task.delay(2, function()
+			cooldown = false
+		end)
+	end)
 end
 
--- Main logic
+-- Main loop
 RunService.Heartbeat:Connect(function()
-	if not enabled or cooldown then return end
-
-	local char = lp.Character
-	if not (char and char:FindFirstChild("HumanoidRootPart")) then return end
-	local hrp = char.HumanoidRootPart
-
-	for _, name in ipairs(killerNames) do
-		local killer = killersFolder:FindFirstChild(name)
-		if killer and killer:FindFirstChild("HumanoidRootPart") then
-			local kHRP = killer.HumanoidRootPart
-
-			if isBehindTarget(hrp, kHRP) and killer ~= lastTarget then
-				cooldown = true
-				lastTarget = killer
-
-				local daggerUsed = false
-				local alignConnection
-
-				-- Keep following the killer behind at 4.3 studs
-				alignConnection = RunService.Heartbeat:Connect(function()
-					if not (char and char.Parent and kHRP and kHRP.Parent) then
-						if alignConnection then alignConnection:Disconnect() end
-						return
-					end
-
-					local targetPos = kHRP.Position - (kHRP.CFrame.LookVector * BACKSTAB_DISTANCE)
-					local targetCFrame = CFrame.new(targetPos, targetPos + kHRP.CFrame.LookVector)
-
-					-- Tween smoothly to the position over 0.35 seconds
-					local tweenInfo = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-					local tween = TweenService:Create(hrp, tweenInfo, {CFrame = targetCFrame})
-					tween:Play()
-				end)
-
-				-- Fire dagger 0.5 seconds after starting
-				task.delay(DAGGER_DELAY, function()
-					if not daggerUsed then
-						daggerUsed = true
-						daggerRemote:FireServer("UseActorAbility", "Dagger")
-
-						-- Stop following shortly after dagger fires
-						task.delay(STOP_DELAY, function()
-							if alignConnection then
-								alignConnection:Disconnect()
-							end
-							lastTarget = nil
-							cooldown = false
-						end)
-					end
-				end)
-
-				break
+	if enabled and not cooldown and not daggerCooldown then
+		for _, name in ipairs(killerNames) do
+			local killer = killersFolder:FindFirstChild(name)
+			if killer and killer:FindFirstChild("HumanoidRootPart") then
+				local kHRP = killer.HumanoidRootPart
+				local dist = (hrp.Position - kHRP.Position).Magnitude
+				if dist <= detectionRange then
+					followKiller(kHRP)
+					break
+				end
 			end
 		end
 	end
 end)
+
