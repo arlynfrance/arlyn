@@ -68,6 +68,10 @@ local daggerRemote = ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Net
 local killerNames = { "Jason", "c00lkidd", "JohnDoe", "1x1x1x1", "Noli" }
 local killersFolder = workspace:WaitForChild("Players"):WaitForChild("Killers")
 
+-- Global backstab cooldown
+local lastBackstabTime = 0
+local BACKSTAB_COOLDOWN = 30 -- seconds
+
 -- GUI toggle
 toggleButton.MouseButton1Click:Connect(function()
 	enabled = not enabled
@@ -100,6 +104,11 @@ end
 RunService.Heartbeat:Connect(function()
 	if not enabled or cooldown then return end
 
+	-- Check global backstab cooldown
+	if tick() - lastBackstabTime < BACKSTAB_COOLDOWN then
+		return
+	end
+
 	local char = lp.Character
 	if not (char and char:FindFirstChild("HumanoidRootPart")) then return end
 	local hrp = char.HumanoidRootPart
@@ -112,13 +121,14 @@ RunService.Heartbeat:Connect(function()
 			if isBehindTarget(hrp, kHRP) and killer ~= lastTarget then
 				cooldown = true
 				lastTarget = killer
+				lastBackstabTime = tick() -- set global cooldown
 
 				-- Exact 4.3 studs behind killer
 				local behindPos = kHRP.Position - (kHRP.CFrame.LookVector * 4.3)
 				local targetCFrame = CFrame.new(behindPos, kHRP.Position)
 
-				-- Tween to move player behind killer
-				local tweenInfo = TweenInfo.new(0.35, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out)
+				-- Tween to move player behind killer (slightly faster)
+				local tweenInfo = TweenInfo.new(0.25, Enum.EasingStyle.Cubic, Enum.EasingDirection.Out)
 				local tween = TweenService:Create(hrp, tweenInfo, {CFrame = targetCFrame})
 
 				-- Fire dagger exactly when tween completes
