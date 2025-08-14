@@ -1,5 +1,5 @@
--- Complete LocalScript: Backstab GUI (screenshot style) + ESP/Tracers (everyone) + Smooth Teleport
--- Place as LocalScript in StarterPlayerScripts
+-- Full LocalScript: Fixed GUI (screenshot style) + ESP (Box/Skeleton) + Tracers + Smooth Teleport (R6 skeleton)
+-- Place as a LocalScript in StarterPlayerScripts
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -16,40 +16,49 @@ local cooldown = false
 local lastTarget = nil
 local range = 4.0
 local mode = "behind" -- screenshot lower-case
-local daggerRemote = ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Network"):WaitForChild("RemoteEvent")
 
--- These are still used for the backstab target detection (you can keep them or modify)
+-- adjust this Remote path if needed in your game
+local daggerRemote
+pcall(function()
+	daggerRemote = ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Network"):WaitForChild("RemoteEvent")
+end)
+
+-- killer detection list (used for red skeleton)
 local killerNames = { "Jason", "c00lkidd", "JohnDoe", "1x1x1x1", "Noli" }
-local killersFolder = workspace:FindFirstChild("Players") and workspace.Players:FindFirstChild("Killers") or nil
--- if the game doesn't have killersFolder, backstab will still function for characters discovered in players list
 
 -- Visual toggles
-local espEnabled = false
+-- espMode cycles: "off", "box", "skeleton"
+local espMode = "off"
 local tracersEnabled = false
 
--- Create ScreenGui + mainFrame (match screenshot layout)
+-- GUI creation (fixed size, top-left)
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "MocksBackstabGui"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = lp:WaitForChild("PlayerGui")
 
+local MAIN_W, MAIN_H = 540, 300
+local MAIN_X, MAIN_Y = 10, 10
+local OFF_Y = -350
+
 local mainFrame = Instance.new("Frame")
 mainFrame.Name = "MainFrame"
-mainFrame.Size = UDim2.new(0, 540, 0, 300)
-mainFrame.Position = UDim2.new(0, 10, 0, -350) -- hidden above initially
+mainFrame.Size = UDim2.new(0, MAIN_W, 0, MAIN_H)
+mainFrame.Position = UDim2.new(0, MAIN_X, 0, OFF_Y) -- hidden above initially
+mainFrame.AnchorPoint = Vector2.new(0, 0)
 mainFrame.BackgroundColor3 = Color3.fromRGB(34, 38, 45)
 mainFrame.BorderSizePixel = 0
 mainFrame.Active = true
 mainFrame.Draggable = true
 mainFrame.Parent = screenGui
-mainFrame.Visible = false
+mainFrame.Visible = false -- starts hidden
 
 local outerStroke = Instance.new("UIStroke")
 outerStroke.Parent = mainFrame
 outerStroke.Color = Color3.fromRGB(148, 82, 255)
 outerStroke.Thickness = 3
 
--- Title bar
+-- Title bar (top)
 local titleBar = Instance.new("Frame")
 titleBar.Name = "TitleBar"
 titleBar.Size = UDim2.new(1, 0, 0, 28)
@@ -69,6 +78,7 @@ titleText.TextColor3 = Color3.fromRGB(200, 200, 200)
 titleText.TextXAlignment = Enum.TextXAlignment.Left
 titleText.Parent = titleBar
 
+-- divider under title
 local divider = Instance.new("Frame")
 divider.Size = UDim2.new(1, -12, 0, 6)
 divider.Position = UDim2.new(0, 6, 0, 28)
@@ -76,7 +86,7 @@ divider.BackgroundColor3 = Color3.fromRGB(70, 70, 78)
 divider.BorderSizePixel = 0
 divider.Parent = mainFrame
 
--- Left panel (controls)
+-- left panel
 local leftPanel = Instance.new("Frame")
 leftPanel.Size = UDim2.new(0, 170, 1, -40)
 leftPanel.Position = UDim2.new(0, 6, 0, 36)
@@ -84,7 +94,7 @@ leftPanel.BackgroundColor3 = Color3.fromRGB(40, 42, 48)
 leftPanel.BorderSizePixel = 0
 leftPanel.Parent = mainFrame
 
--- Mid separator
+-- mid separator
 local midSep = Instance.new("Frame")
 midSep.Size = UDim2.new(0, 6, 1, -40)
 midSep.Position = UDim2.new(0, 180, 0, 36)
@@ -92,7 +102,7 @@ midSep.BackgroundColor3 = Color3.fromRGB(70, 70, 78)
 midSep.BorderSizePixel = 0
 midSep.Parent = mainFrame
 
--- Right small panel
+-- right panel (small)
 local rightPanel = Instance.new("Frame")
 rightPanel.Size = UDim2.new(0, 170, 1, -40)
 rightPanel.Position = UDim2.new(0, 192, 0, 36)
@@ -100,7 +110,7 @@ rightPanel.BackgroundColor3 = Color3.fromRGB(46, 48, 55)
 rightPanel.BorderSizePixel = 0
 rightPanel.Parent = mainFrame
 
--- Big dark area on the right (visual)
+-- big area leftover (kept purely visual to match screenshot)
 local bigArea = Instance.new("Frame")
 bigArea.Size = UDim2.new(1, -12 - 178, 1, -46)
 bigArea.Position = UDim2.new(0, 374, 0, 36)
@@ -114,7 +124,7 @@ bigAreaSep.Position = UDim2.new(0, 0, 0, 0)
 bigAreaSep.BackgroundColor3 = Color3.fromRGB(70,70,78)
 bigAreaSep.Parent = bigArea
 
--- Helper to make small buttons (screenshot style)
+-- helper to make small buttons (screenshot style)
 local function makeSmallButton(parent, name, pos, size, text)
 	local b = Instance.new("TextButton")
 	b.Name = name
@@ -130,6 +140,7 @@ local function makeSmallButton(parent, name, pos, size, text)
 	return b
 end
 
+-- Controls in left panel
 local backstabBtn = makeSmallButton(leftPanel, "BackstabBtn", UDim2.new(0, 8, 0, 8), UDim2.new(0, 150, 0, 28), "backstab: off")
 
 local rangeLabel = Instance.new("TextLabel")
@@ -143,7 +154,7 @@ rangeLabel.Text = ("range: %.1f"):format(range)
 rangeLabel.TextXAlignment = Enum.TextXAlignment.Left
 rangeLabel.Parent = leftPanel
 
--- Slider
+-- slider area
 local sliderBg = Instance.new("Frame")
 sliderBg.Size = UDim2.new(0, 150, 0, 12)
 sliderBg.Position = UDim2.new(0, 8, 0, 64)
@@ -168,10 +179,11 @@ sliderKnob.Parent = sliderBg
 
 local modeBtn = makeSmallButton(leftPanel, "ModeBtn", UDim2.new(0, 8, 0, 92), UDim2.new(0, 150, 0, 24), "mode:behind")
 
+-- right small controls
 local espBtn = makeSmallButton(rightPanel, "ESPBtn", UDim2.new(0, 8, 0, 8), UDim2.new(0, 120, 0, 28), "esp: off")
 local tracerBtn = makeSmallButton(rightPanel, "TracerBtn", UDim2.new(0, 8, 0, 44), UDim2.new(0, 120, 0, 28), "tracers:off")
 
--- Inner top border
+-- top inner border
 local innerTop = Instance.new("Frame")
 innerTop.Size = UDim2.new(1, -12, 0, 6)
 innerTop.Position = UDim2.new(0, 6, 0, 32)
@@ -179,36 +191,33 @@ innerTop.BorderSizePixel = 0
 innerTop.BackgroundColor3 = Color3.fromRGB(74,74,82)
 innerTop.Parent = mainFrame
 
--- GUI visibility toggle (RightShift)
+-- GUI visibility / RightShift slide
 local guiVisible = false
-local function toggleGui()
-	guiVisible = not guiVisible
-	if guiVisible then
-		mainFrame.Visible = true
-		TweenService:Create(mainFrame, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-			Position = UDim2.new(0, 10, 0, 10)
-		}):Play()
-	else
-		local t = TweenService:Create(mainFrame, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
-			Position = UDim2.new(0, 10, 0, -350)
-		})
-		t:Play()
-		t.Completed:Connect(function()
-			if not guiVisible then
-				mainFrame.Visible = false
-			end
-		end)
-	end
+local function slideIn()
+	mainFrame.Visible = true
+	TweenService:Create(mainFrame, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Position = UDim2.new(0, MAIN_X, 0, MAIN_Y)
+	}):Play()
+end
+local function slideOut()
+	local t = TweenService:Create(mainFrame, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+		Position = UDim2.new(0, MAIN_X, 0, OFF_Y)
+	})
+	t:Play()
+	t.Completed:Connect(function()
+		if not guiVisible then mainFrame.Visible = false end
+	end)
 end
 
 UserInputService.InputBegan:Connect(function(input, processed)
 	if processed then return end
 	if input.KeyCode == Enum.KeyCode.RightShift then
-		toggleGui()
+		guiVisible = not guiVisible
+		if guiVisible then slideIn() else slideOut() end
 	end
 end)
 
--- Slider dragging logic
+-- Slider dragging
 local dragging = false
 local function setSliderFromX(x)
 	local absPos = sliderBg.AbsolutePosition.X
@@ -224,20 +233,18 @@ end
 sliderKnob.MouseButton1Down:Connect(function()
 	dragging = true
 end)
-
 UserInputService.InputChanged:Connect(function(inp)
 	if dragging and inp.UserInputType == Enum.UserInputType.MouseMovement then
 		setSliderFromX(inp.Position.X)
 	end
 end)
-
 UserInputService.InputEnded:Connect(function(inp)
 	if inp.UserInputType == Enum.UserInputType.MouseButton1 then
 		dragging = false
 	end
 end)
 
--- Button behaviors
+-- Buttons behaviours and esp mode cycling (Off -> Box -> Skeleton -> Off)
 backstabBtn.MouseButton1Click:Connect(function()
 	enabled = not enabled
 	backstabBtn.Text = "backstab: " .. (enabled and "on" or "off")
@@ -245,51 +252,68 @@ backstabBtn.MouseButton1Click:Connect(function()
 end)
 
 modeBtn.MouseButton1Click:Connect(function()
-	if mode == "behind" then
-		mode = "around"
-	else
-		mode = "behind"
-	end
+	if mode == "behind" then mode = "around" else mode = "behind" end
 	modeBtn.Text = "mode:" .. mode
 end)
 
-espBtn.MouseButton1Click:Connect(function()
-	espEnabled = not espEnabled
-	espBtn.Text = "esp: " .. (espEnabled and "on" or "off")
-	espBtn.BackgroundColor3 = espEnabled and Color3.fromRGB(120,120,140) or Color3.fromRGB(95,95,100)
-end)
+local function cycleESPMode()
+	if espMode == "off" then
+		espMode = "box"
+	elseif espMode == "box" then
+		espMode = "skeleton"
+	else
+		espMode = "off"
+	end
+	espBtn.Text = "esp: " .. espMode
+	espBtn.BackgroundColor3 = (espMode == "off") and Color3.fromRGB(95,95,100) or Color3.fromRGB(120,120,140)
+	-- clear overlays when turning off
+	if espMode == "off" then
+		for k,v in pairs(espOverlays) do
+			v:Destroy()
+			espOverlays[k] = nil
+		end
+	end
+end
+
+espBtn.MouseButton1Click:Connect(cycleESPMode)
 
 tracerBtn.MouseButton1Click:Connect(function()
 	tracersEnabled = not tracersEnabled
 	tracerBtn.Text = "tracers:" .. (tracersEnabled and "on" or "off")
 	tracerBtn.BackgroundColor3 = tracersEnabled and Color3.fromRGB(120,120,140) or Color3.fromRGB(95,95,100)
+	-- clear tracer overlays if disabled
+	if not tracersEnabled then
+		for k,v in pairs(tracerOverlays) do
+			v:Destroy()
+			tracerOverlays[k] = nil
+		end
+	end
 end)
 
--- Helper: isBehindTarget (uses same logic as your original)
+-- Helper: isBehindTarget (same logic as before)
 local function isBehindTarget(hrp, targetHRP)
 	local distance = (hrp.Position - targetHRP.Position).Magnitude
-	if distance > range then
-		return false
-	end
-	if mode == "around" then
-		return true
-	else
-		local direction = -targetHRP.CFrame.LookVector
-		local toPlayer = (hrp.Position - targetHRP.Position)
-		return toPlayer:Dot(direction) > 0.5
-	end
+	if distance > range then return false end
+	if mode == "around" then return true end
+	local direction = -targetHRP.CFrame.LookVector
+	local toPlayer = (hrp.Position - targetHRP.Position)
+	return toPlayer:Dot(direction) > 0.5
 end
 
--- Overlays for ESP/tracers (screen GUI frames)
+-- Overlays store
 local overlayFolder = Instance.new("Folder", screenGui)
 overlayFolder.Name = "Overlays"
-local espOverlays = {}    -- playerName -> Frame
-local tracerOverlays = {} -- playerName -> Frame (line)
+local espOverlays = {}    -- playerName -> {box = Frame, skeletonLines = {ImageLabel,...}}
+local tracerOverlays = {} -- playerName -> ImageLabel (line)
 
-local function createESPOverlayFor(name)
-	if espOverlays[name] then return espOverlays[name] end
+-- utility: check if name is killer
+local killerSet = {}
+for _,n in ipairs(killerNames) do killerSet[n] = true end
+
+-- create box overlay
+local function createBoxOverlayFor(name)
 	local f = Instance.new("Frame")
-	f.Name = "ESP_" .. name
+	f.Name = "ESPBox_" .. name
 	f.Size = UDim2.new(0, 80, 0, 110)
 	f.AnchorPoint = Vector2.new(0.5, 0.5)
 	f.BackgroundTransparency = 1
@@ -299,7 +323,7 @@ local function createESPOverlayFor(name)
 	local border = Instance.new("Frame")
 	border.Name = "Border"
 	border.Size = UDim2.new(1, 0, 1, 0)
-	border.Position = UDim2.new(0, 0, 0, 0)
+	border.Position = UDim2.new(0,0,0,0)
 	border.BorderSizePixel = 0
 	border.BackgroundTransparency = 1
 	border.Parent = f
@@ -311,12 +335,13 @@ local function createESPOverlayFor(name)
 	return f
 end
 
-local function createTracerOverlayFor(name)
-	if tracerOverlays[name] then return tracerOverlays[name] end
-	local t = Instance.new("Frame")
+-- create tracer line (ImageLabel so we can rotate it)
+local function createTracerFor(name)
+	local t = Instance.new("ImageLabel")
 	t.Name = "Tracer_" .. name
 	t.BorderSizePixel = 0
-	t.BackgroundColor3 = Color3.fromRGB(140,140,160)
+	t.BackgroundColor3 = Color3.fromRGB(220,220,220)
+	t.BackgroundTransparency = 0
 	t.Size = UDim2.new(0, 0, 0, 2)
 	t.AnchorPoint = Vector2.new(0, 0.5)
 	t.Position = UDim2.new(0, 0, 0, 0)
@@ -324,78 +349,254 @@ local function createTracerOverlayFor(name)
 	return t
 end
 
-local function removeOverlaysFor(name)
-	if espOverlays[name] then espOverlays[name]:Destroy(); espOverlays[name] = nil end
-	if tracerOverlays[name] then tracerOverlays[name]:Destroy(); tracerOverlays[name] = nil end
+-- create skeleton lines for R6 rig: returns table of ImageLabels
+local function createSkeletonLinesFor(name, color)
+	local parts = {}
+	-- create a number of lines for connections; R6 needs 9 connections approx
+	local connections = {
+		"head_torso",
+		"torso_larm",
+		"larm_lforearm",
+		"torso_rarm",
+		"rarm_rforearm",
+		"torso_lleg",
+		"lleg_lfoot",
+		"torso_rleg",
+		"rleg_rfoot",
+	}
+	for i, key in ipairs(connections) do
+		local line = Instance.new("ImageLabel")
+		line.Name = "SLine_" .. name .. "_" .. tostring(i)
+		line.BorderSizePixel = 0
+		line.BackgroundColor3 = color
+		line.BackgroundTransparency = 0
+		line.Size = UDim2.new(0, 0, 0, 2)
+		line.AnchorPoint = Vector2.new(0, 0.5)
+		line.Position = UDim2.new(0, 0, 0, 0)
+		line.Rotation = 0
+		line.Parent = overlayFolder
+		parts[#parts+1] = line
+	end
+	return parts
 end
 
--- Remove overlays when players leave
+-- remove overlays for player
+local function removeOverlaysFor(name)
+	if espOverlays[name] then
+		for _,obj in ipairs(espOverlays[name].lines or {}) do
+			if obj and obj.Parent then obj:Destroy() end
+		end
+		if espOverlays[name].box and espOverlays[name].box.Parent then espOverlays[name].box:Destroy() end
+		espOverlays[name] = nil
+	end
+	if tracerOverlays[name] then
+		if tracerOverlays[name].Parent then tracerOverlays[name]:Destroy() end
+		tracerOverlays[name] = nil
+	end
+end
+
 Players.PlayerRemoving:Connect(function(plr)
 	removeOverlaysFor(plr.Name)
 end)
 
--- Render loop: update overlays & backstab logic
+-- Helper: get R6 joint positions; returns table of Vector3 or nil if not available
+local function getR6Joints(char)
+	if not char then return nil end
+	local joints = {}
+	-- common R6 part names
+	local head = char:FindFirstChild("Head")
+	local torso = char:FindFirstChild("Torso") or char:FindFirstChild("UpperTorso") or char:FindFirstChild("UpperTorso") -- fallback
+	local larm = char:FindFirstChild("Left Arm") or char:FindFirstChild("LeftUpperArm")
+	local rarm = char:FindFirstChild("Right Arm") or char:FindFirstChild("RightUpperArm")
+	local lleg = char:FindFirstChild("Left Leg") or char:FindFirstChild("LeftLowerLeg")
+	local rleg = char:FindFirstChild("Right Leg") or char:FindFirstChild("RightLowerLeg")
+	local lhand = char:FindFirstChild("Left Hand")
+	local rhand = char:FindFirstChild("Right Hand")
+	local lfoot = char:FindFirstChild("Left Foot")
+	local rfoot = char:FindFirstChild("Right Foot")
+	local hrp = char:FindFirstChild("HumanoidRootPart")
+
+	-- Use best available positions; if missing, try offsets from hrp
+	local function posOrFallback(part, fallbackOffset)
+		if part and part:IsA("BasePart") then return part.Position end
+		if hrp then return hrp.Position + (fallbackOffset or Vector3.new(0,0,0)) end
+		return nil
+	end
+
+	joints.Head = posOrFallback(head, Vector3.new(0,2,0))
+	joints.Torso = posOrFallback(torso, Vector3.new(0,1,0))
+	joints.LeftArm = posOrFallback(larm, Vector3.new(-0.5,1,0))
+	joints.RightArm = posOrFallback(rarm, Vector3.new(0.5,1,0))
+	joints.LeftLeg = posOrFallback(lleg, Vector3.new(-0.3,-1,0))
+	joints.RightLeg = posOrFallback(rleg, Vector3.new(0.3,-1,0))
+	-- for hands/feet try to use parts if present; otherwise derive from limb positions
+	joints.LeftHand = posOrFallback(lhand) or (joints.LeftArm and joints.LeftArm + Vector3.new(0, -0.6, 0))
+	joints.RightHand = posOrFallback(rhand) or (joints.RightArm and joints.RightArm + Vector3.new(0, -0.6, 0))
+	joints.LeftFoot = posOrFallback(lfoot) or (joints.LeftLeg and joints.LeftLeg + Vector3.new(0, -0.8, 0))
+	joints.RightFoot = posOrFallback(rfoot) or (joints.RightLeg and joints.RightLeg + Vector3.new(0, -0.8, 0))
+
+	-- If Torso missing but HRP present, use HRP
+	if not joints.Torso and hrp then joints.Torso = hrp.Position end
+
+	return joints
+end
+
+-- Project world point to viewport and return Vector2 + onScreen boolean
+local function worldToScreenPoint(vec3)
+	local p, onScreen = camera:WorldToViewportPoint(vec3)
+	return Vector2.new(p.X, p.Y), onScreen
+end
+
+-- Update function per frame
 RunService.RenderStepped:Connect(function()
 	local char = lp.Character
 	if not (char and char:FindFirstChild("HumanoidRootPart")) then
-		-- if no character, clear overlays
+		-- clear overlays if local character missing
 		for name,_ in pairs(espOverlays) do removeOverlaysFor(name) end
 		for name,_ in pairs(tracerOverlays) do removeOverlaysFor(name) end
 		return
 	end
 	local hrp = char.HumanoidRootPart
 
-	-- Update overlays for all other players
+	-- Update overlays for every other player
 	for _, other in ipairs(Players:GetPlayers()) do
 		if other ~= lp then
 			local otherChar = other.Character
-			local targetHRP = otherChar and (otherChar:FindFirstChild("HumanoidRootPart") or otherChar:FindFirstChild("Torso") or otherChar:FindFirstChild("UpperTorso"))
-			if targetHRP then
-				local worldPos = targetHRP.Position + Vector3.new(0, 2.2, 0)
-				local point, onScreen = camera:WorldToViewportPoint(worldPos)
-				local screenPos = Vector2.new(point.X, point.Y)
+			local root = otherChar and (otherChar:FindFirstChild("HumanoidRootPart") or otherChar:FindFirstChild("Torso") or otherChar:FindFirstChild("UpperTorso"))
+			if root then
+				local name = other.Name
 
-				-- ESP
-				if espEnabled then
-					if not espOverlays[other.Name] then
-						espOverlays[other.Name] = createESPOverlayFor(other.Name)
+				-- Determine color: killer -> red else white
+				local color = killerSet[name] and Color3.fromRGB(255,80,80) or Color3.fromRGB(230,230,230)
+
+				-- Create overlays if necessary
+				if espMode ~= "off" and not espOverlays[name] then
+					espOverlays[name] = { box = nil, lines = nil }
+					if espMode == "box" then
+						espOverlays[name].box = createBoxOverlayFor(name)
+					elseif espMode == "skeleton" then
+						espOverlays[name].lines = createSkeletonLinesFor(name, color)
 					end
-					local overlay = espOverlays[other.Name]
-					local dist = (camera.CFrame.Position - worldPos).Magnitude
-					local scale = math.clamp(1800 / math.max(dist, 1), 40, 200)
-					local w = math.floor(scale * 0.6)
-					local h = math.floor(scale)
-					overlay.Size = UDim2.new(0, w, 0, h)
-					-- Position: use AbsolutePosition via setting Position = UDim2.new(0, x, 0, y)
-					overlay.Position = UDim2.new(0, screenPos.X - (w / 2), 0, screenPos.Y - (h / 2))
-					overlay.Visible = onScreen
-				else
-					if espOverlays[other.Name] then removeOverlaysFor(other.Name) end
 				end
 
-				-- Tracers
-				if tracersEnabled then
-					if not tracerOverlays[other.Name] then
-						tracerOverlays[other.Name] = createTracerOverlayFor(other.Name)
+				-- If espMode changed for an existing overlay, recreate properly
+				if espOverlays[name] then
+					-- ensure correct type exists
+					if espMode == "box" and not espOverlays[name].box then
+						-- destroy any skeleton lines and create box
+						if espOverlays[name].lines then
+							for _,o in ipairs(espOverlays[name].lines) do if o and o.Parent then o:Destroy() end end
+						end
+						espOverlays[name].lines = nil
+						espOverlays[name].box = createBoxOverlayFor(name)
+					elseif espMode == "skeleton" and not espOverlays[name].lines then
+						if espOverlays[name].box and espOverlays[name].box.Parent then espOverlays[name].box:Destroy() end
+						espOverlays[name].box = nil
+						espOverlays[name].lines = createSkeletonLinesFor(name, color)
+					elseif espMode == "off" then
+						removeOverlaysFor(name)
 					end
-					local tracer = tracerOverlays[other.Name]
-					local headPos = targetHRP.Position + Vector3.new(0, 1.5, 0)
-					local p, ons = camera:WorldToViewportPoint(headPos)
-					local sp = Vector2.new(p.X, p.Y)
+				end
+
+				-- Update Box ESP
+				if espMode == "box" and espOverlays[name] and espOverlays[name].box then
+					-- pick top and bottom points to form box
+					local topWorld = root.Position + Vector3.new(0, 2.2, 0)
+					local bottomWorld = root.Position + Vector3.new(0, -1.0, 0)
+					local top2d, topOn = worldToScreenPoint(topWorld)
+					local bot2d, botOn = worldToScreenPoint(bottomWorld)
+					local onScreen = topOn or botOn
+					if onScreen then
+						-- compute size by projected vertical distance
+						local height = math.abs(top2d.Y - bot2d.Y)
+						local width = math.max(30, math.floor(height * 0.45))
+						local overlay = espOverlays[name].box
+						overlay.Size = UDim2.new(0, width, 0, height)
+						overlay.Position = UDim2.new(0, top2d.X - width/2, 0, top2d.Y + (bot2d.Y - top2d.Y)/2)
+						overlay.Visible = true
+					else
+						espOverlays[name].box.Visible = false
+					end
+				end
+
+				-- Update Skeleton ESP
+				if espMode == "skeleton" and espOverlays[name] and espOverlays[name].lines then
+					local joints = getR6Joints(otherChar)
+					if joints then
+						-- mapping of connections for R6:
+						-- 1 Head -> Torso
+						-- 2 Torso -> LeftArm
+						-- 3 LeftArm -> LeftHand
+						-- 4 Torso -> RightArm
+						-- 5 RightArm -> RightHand
+						-- 6 Torso -> LeftLeg
+						-- 7 LeftLeg -> LeftFoot
+						-- 8 Torso -> RightLeg
+						-- 9 RightLeg -> RightFoot
+						local connWorld = {
+							{ joints.Head, joints.Torso },
+							{ joints.Torso, joints.LeftArm },
+							{ joints.LeftArm, joints.LeftHand },
+							{ joints.Torso, joints.RightArm },
+							{ joints.RightArm, joints.RightHand },
+							{ joints.Torso, joints.LeftLeg },
+							{ joints.LeftLeg, joints.LeftFoot },
+							{ joints.Torso, joints.RightLeg },
+							{ joints.RightLeg, joints.RightFoot },
+						}
+						local anyVisible = false
+						for i, pair in ipairs(connWorld) do
+							local a, b = pair[1], pair[2]
+							local line = espOverlays[name].lines[i]
+							if a and b and line then
+								local a2d, aOn = worldToScreenPoint(a)
+								local b2d, bOn = worldToScreenPoint(b)
+								if aOn or bOn then
+									anyVisible = true
+									local delta = b2d - a2d
+									local dist = delta.Magnitude
+									local angle = math.deg(math.atan2(delta.Y, delta.X))
+									line.Size = UDim2.new(0, math.max(2, math.floor(dist)), 0, 2)
+									line.Position = UDim2.new(0, a2d.X, 0, a2d.Y)
+									line.Rotation = angle
+									line.AnchorPoint = Vector2.new(0, 0.5)
+									line.Visible = true
+								else
+									line.Visible = false
+								end
+							end
+						end
+						-- hide all if none visible
+						if not anyVisible then
+							for _, l in ipairs(espOverlays[name].lines) do l.Visible = false end
+						end
+					end
+				end
+
+				-- Update Tracer
+				if tracersEnabled then
+					if not tracerOverlays[name] then tracerOverlays[name] = createTracerFor(name) end
+					local tracer = tracerOverlays[name]
+					-- point to player's head area
+					local headWorld = (otherChar and otherChar:FindFirstChild("Head")) and otherChar.Head.Position or (root.Position + Vector3.new(0,1.5,0))
+					local head2d, headOn = worldToScreenPoint(headWorld)
 					local origin = Vector2.new(camera.ViewportSize.X * 0.5, camera.ViewportSize.Y - 36)
-					local delta = sp - origin
+					local delta = head2d - origin
 					local dist = delta.Magnitude
 					local angle = math.deg(math.atan2(delta.Y, delta.X))
-					tracer.Size = UDim2.new(0, dist, 0, 2)
+					tracer.Size = UDim2.new(0, math.max(2, math.floor(dist)), 0, 2)
 					tracer.Position = UDim2.new(0, origin.X, 0, origin.Y)
 					tracer.Rotation = angle
 					tracer.AnchorPoint = Vector2.new(0, 0.5)
-					tracer.Visible = ons
+					tracer.BackgroundColor3 = color
+					tracer.Visible = headOn
 				else
-					if tracerOverlays[other.Name] then removeOverlaysFor(other.Name) end
+					if tracerOverlays[name] then
+						tracerOverlays[name].Visible = false
+					end
 				end
 			else
-				-- character not present: cleanup overlays
+				-- no character or root: ensure overlays cleared
 				if espOverlays[other.Name] or tracerOverlays[other.Name] then
 					removeOverlaysFor(other.Name)
 				end
@@ -403,22 +604,21 @@ RunService.RenderStepped:Connect(function()
 		end
 	end
 
-	-- Backstab logic: still respects killersFolder if present; otherwise will only work if killers exist
-	-- We'll also check killersFolder if present, otherwise iterate killerNames in workspace.Players.Killers if any
-	local function iterateKillers()
-		local list = {}
-		if killersFolder and typeof(killersFolder.FindFirstChild) == "function" then
-			for _, nm in ipairs(killerNames) do
-				local k = killersFolder:FindFirstChild(nm)
-				if k then table.insert(list, k) end
-			end
+	-- -------- BACKSTAB logic (keeps your smooth tween teleport) ----------
+	-- We will try using a killersFolder if present; otherwise treat other players as potential targets.
+
+	local killersToCheck = {}
+
+	-- Prefer workspace.Players.Killers if exists
+	local killersFolder = workspace:FindFirstChild("Players") and workspace.Players:FindFirstChild("Killers")
+	if killersFolder then
+		for _, nm in ipairs(killerNames) do
+			local k = killersFolder:FindFirstChild(nm)
+			if k and k:FindFirstChild("HumanoidRootPart") then table.insert(killersToCheck, k) end
 		end
-		return list
 	end
 
-	local killersToCheck = iterateKillers()
-
-	-- If there are no special killers in workspace, also check other players' characters as potential targets
+	-- fallback: other players' characters
 	if #killersToCheck == 0 then
 		for _, other in ipairs(Players:GetPlayers()) do
 			if other ~= lp and other.Character and other.Character:FindFirstChild("HumanoidRootPart") then
@@ -427,7 +627,6 @@ RunService.RenderStepped:Connect(function()
 		end
 	end
 
-	-- Evaluate each candidate for backstab
 	for _, kobj in ipairs(killersToCheck) do
 		local kHRP = kobj and kobj:FindFirstChild("HumanoidRootPart")
 		if kHRP then
@@ -470,8 +669,10 @@ RunService.RenderStepped:Connect(function()
 								hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + kHRP.CFrame.LookVector)
 							end
 						end)
-						-- Fire dagger remote (safely)
-						pcall(function() daggerRemote:FireServer("UseActorAbility", "Dagger") end)
+						-- Fire dagger remote safely if available
+						pcall(function()
+							if daggerRemote then daggerRemote:FireServer("UseActorAbility", "Dagger") end
+						end)
 					end
 				end)
 
