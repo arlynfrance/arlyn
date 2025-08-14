@@ -2,35 +2,19 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
-local UserInputService = game:GetService("UserInputService")
 local GuiService = game:GetService("GuiService")
-
 local lp = Players.LocalPlayer
-local char, hrp
-local camera = workspace.CurrentCamera
 
--- Vars
-local enabled = false
-local cooldown = false
-local lastTarget = nil
-local detectionRange = 4
-local tweenSpeed = 1.1
-local stabDistanceBehind = 3.8
-local daggerRemote = ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Network"):WaitForChild("RemoteEvent")
-local killerNames = { "Jason", "c00lkidd", "JohnDoe", "1x1x1x1", "Noli" }
-local killersFolder = workspace:WaitForChild("Players"):WaitForChild("Killers")
-
--- UI Setup
+-- GUI Setup
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "BackstabToggleGui"
+screenGui.Name = "BackstabGui"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = lp:WaitForChild("PlayerGui")
 
--- Corner styling helper
-local function roundify(obj, radius)
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, radius)
-	corner.Parent = obj
+local function newCorner(radius)
+	local c = Instance.new("UICorner")
+	c.CornerRadius = UDim.new(0, radius)
+	return c
 end
 
 -- Toggle Button
@@ -43,154 +27,168 @@ toggleButton.Font = Enum.Font.SourceSansBold
 toggleButton.TextSize = 20
 toggleButton.Text = "Backstab: OFF"
 toggleButton.Parent = screenGui
-roundify(toggleButton, 8)
+newCorner(6).Parent = toggleButton
 
+-- Range Slider
+local rangeLabel = Instance.new("TextLabel")
+rangeLabel.Size = UDim2.new(0, 150, 0, 20)
+rangeLabel.Position = UDim2.new(0, 10, 0, 55)
+rangeLabel.BackgroundTransparency = 1
+rangeLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+rangeLabel.Font = Enum.Font.SourceSans
+rangeLabel.TextSize = 16
+rangeLabel.Text = "Range: 4"
+rangeLabel.Parent = screenGui
+
+local rangeSliderTrack = Instance.new("Frame")
+rangeSliderTrack.Size = UDim2.new(0, 150, 0, 6)
+rangeSliderTrack.Position = UDim2.new(0, 10, 0, 75)
+rangeSliderTrack.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+newCorner(3).Parent = rangeSliderTrack
+rangeSliderTrack.Parent = screenGui
+
+local rangeSliderFill = Instance.new("Frame")
+rangeSliderFill.Size = UDim2.new(0.4, 0, 1, 0)
+rangeSliderFill.BackgroundColor3 = Color3.fromRGB(120, 120, 200)
+newCorner(3).Parent = rangeSliderFill
+rangeSliderFill.Parent = rangeSliderTrack
+
+local rangeSliderHandle = Instance.new("Frame")
+rangeSliderHandle.Size = UDim2.new(0, 12, 0, 12)
+rangeSliderHandle.Position = UDim2.new(0.4, -6, -0.5, 0)
+rangeSliderHandle.BackgroundColor3 = Color3.fromRGB(200, 200, 255)
+newCorner(6).Parent = rangeSliderHandle
+rangeSliderHandle.Parent = rangeSliderTrack
+
+-- Speed Slider
+local speedLabel = Instance.new("TextLabel")
+speedLabel.Size = UDim2.new(0, 150, 0, 20)
+speedLabel.Position = UDim2.new(0, 10, 0, 95)
+speedLabel.BackgroundTransparency = 1
+speedLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+speedLabel.Font = Enum.Font.SourceSans
+speedLabel.TextSize = 16
+speedLabel.Text = "Tween Speed: 1.1"
+speedLabel.Parent = screenGui
+
+local speedSliderTrack = Instance.new("Frame")
+speedSliderTrack.Size = UDim2.new(0, 150, 0, 6)
+speedSliderTrack.Position = UDim2.new(0, 10, 0, 115)
+speedSliderTrack.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+newCorner(3).Parent = speedSliderTrack
+speedSliderTrack.Parent = screenGui
+
+local speedSliderFill = Instance.new("Frame")
+speedSliderFill.Size = UDim2.new(0.55, 0, 1, 0)
+speedSliderFill.BackgroundColor3 = Color3.fromRGB(120, 120, 200)
+newCorner(3).Parent = speedSliderFill
+speedSliderFill.Parent = speedSliderTrack
+
+local speedSliderHandle = Instance.new("Frame")
+speedSliderHandle.Size = UDim2.new(0, 12, 0, 12)
+speedSliderHandle.Position = UDim2.new(0.55, -6, -0.5, 0)
+speedSliderHandle.BackgroundColor3 = Color3.fromRGB(200, 200, 255)
+newCorner(6).Parent = speedSliderHandle
+speedSliderHandle.Parent = speedSliderTrack
+
+-- @mocksss clickable label
+local mocksssLabel = Instance.new("TextButton")
+mocksssLabel.Size = UDim2.new(0, 150, 0, 25)
+mocksssLabel.Position = UDim2.new(0, 10, 0, 140)
+mocksssLabel.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+mocksssLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+mocksssLabel.Font = Enum.Font.SourceSans
+mocksssLabel.TextSize = 16
+mocksssLabel.Text = "@mocksss"
+mocksssLabel.Parent = screenGui
+newCorner(5).Parent = mocksssLabel
+mocksssLabel.MouseButton1Click:Connect(function()
+	GuiService:OpenBrowserWindow("https://www.youtube.com/@mocksss")
+end)
+
+-- Vars
+local enabled = false
+local cooldown = false
+local range = 4
+local tweenTime = 1.1
+local daggerRemote = ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Network"):WaitForChild("RemoteEvent")
+local killerNames = { "Jason", "c00lkidd", "JohnDoe", "1x1x1x1", "Noli" }
+local killersFolder = workspace:WaitForChild("Players"):WaitForChild("Killers")
+
+-- GUI toggle
 toggleButton.MouseButton1Click:Connect(function()
 	enabled = not enabled
 	toggleButton.Text = "Backstab: " .. (enabled and "ON" or "OFF")
 	toggleButton.BackgroundColor3 = enabled and Color3.fromRGB(80, 84, 120) or Color3.fromRGB(30, 30, 30)
 end)
 
--- Slider creator
-local function createSlider(yPos, minVal, maxVal, defaultVal, labelText, onValueChanged)
-	local frame = Instance.new("Frame")
-	frame.Size = UDim2.new(0, 150, 0, 40)
-	frame.Position = UDim2.new(0, 10, 0, yPos)
-	frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-	frame.Parent = screenGui
-	roundify(frame, 8)
-
-	local label = Instance.new("TextLabel")
-	label.Size = UDim2.new(1, -10, 0, 15)
-	label.Position = UDim2.new(0, 5, 0, 2)
-	label.BackgroundTransparency = 1
-	label.TextColor3 = Color3.new(1, 1, 1)
-	label.Font = Enum.Font.SourceSans
-	label.TextSize = 14
-	label.TextXAlignment = Enum.TextXAlignment.Left
-	label.Text = labelText .. ": " .. tostring(defaultVal)
-	label.Parent = frame
-
-	local track = Instance.new("Frame")
-	track.Size = UDim2.new(1, -10, 0, 6)
-	track.Position = UDim2.new(0, 5, 0, 25)
-	track.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-	track.Parent = frame
-	roundify(track, 3)
-
-	local fill = Instance.new("Frame")
-	fill.Size = UDim2.new((defaultVal - minVal) / (maxVal - minVal), 0, 1, 0)
-	fill.BackgroundColor3 = Color3.fromRGB(80, 84, 120)
-	fill.Parent = track
-	roundify(fill, 3)
-
-	local handle = Instance.new("Frame")
-	handle.Size = UDim2.new(0, 10, 1.8, 0)
-	handle.BackgroundColor3 = Color3.fromRGB(200, 200, 200)
-	handle.Position = UDim2.new(fill.Size.X.Scale, -5, 0.5, -3)
-	handle.Parent = track
-	roundify(handle, 5)
-
+-- Slider logic
+local function setupSlider(track, fill, handle, label, minVal, maxVal, defaultVal, callback)
 	local dragging = false
-	local targetX = handle.Position.X.Scale
-
+	local function update(inputX)
+		local rel = math.clamp((inputX - track.AbsolutePosition.X) / track.AbsoluteSize.X, 0, 1)
+		fill.Size = UDim2.new(rel, 0, 1, 0)
+		handle.Position = UDim2.new(rel, -handle.AbsoluteSize.X/2, -0.5, 0)
+		local value = math.floor((minVal + (maxVal - minVal) * rel) * 100) / 100
+		callback(value)
+	end
 	handle.InputBegan:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 then
 			dragging = true
 		end
 	end)
-
-	UserInputService.InputEnded:Connect(function(input)
+	handle.InputEnded:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseButton1 then
 			dragging = false
 		end
 	end)
-
-	RunService.RenderStepped:Connect(function()
-		if dragging then
-			local mousePos = UserInputService:GetMouseLocation().X
-			local relative = math.clamp((mousePos - track.AbsolutePosition.X) / track.AbsoluteSize.X, 0, 1)
-			targetX = relative
-			local value = minVal + (maxVal - minVal) * relative
-			label.Text = labelText .. ": " .. string.format("%.2f", value)
-			onValueChanged(value)
+	track.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			update(input.Position.X)
+			dragging = true
 		end
-		-- Smooth lerp for handle and fill
-		local newX = handle.Position.X.Scale + (targetX - handle.Position.X.Scale) * 0.15
-		handle.Position = UDim2.new(newX, -5, 0.5, -3)
-		fill.Size = UDim2.new(newX, 0, 1, 0)
 	end)
+	game:GetService("UserInputService").InputChanged:Connect(function(input)
+		if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+			update(input.Position.X)
+		end
+	end)
+	update(track.AbsolutePosition.X + track.AbsoluteSize.X * ((defaultVal - minVal) / (maxVal - minVal)))
 end
 
--- Sliders
-createSlider(55, 1, 10, detectionRange, "Detection Range", function(val)
-	detectionRange = val
+setupSlider(rangeSliderTrack, rangeSliderFill, rangeSliderHandle, rangeLabel, 1, 10, 4, function(val)
+	range = val
+	rangeLabel.Text = "Range: " .. val
 end)
 
-createSlider(100, 0.5, 3, tweenSpeed, "Tween Speed", function(val)
-	tweenSpeed = val
+setupSlider(speedSliderTrack, speedSliderFill, speedSliderHandle, speedLabel, 0.5, 3, 1.1, function(val)
+	tweenTime = val
+	speedLabel.Text = "Tween Speed: " .. val
 end)
-
--- @mocksss clickable
-local mockBtn = Instance.new("TextButton")
-mockBtn.Size = UDim2.new(0, 150, 0, 25)
-mockBtn.Position = UDim2.new(0, 10, 0, 145)
-mockBtn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
-mockBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-mockBtn.Font = Enum.Font.SourceSans
-mockBtn.TextSize = 16
-mockBtn.Text = "@mocksss"
-mockBtn.Parent = screenGui
-roundify(mockBtn, 8)
-
-mockBtn.MouseButton1Click:Connect(function()
-	local url = "https://www.youtube.com/@mocksss"
-	setclipboard(url)
-	if syn and syn.request then
-		syn.request({Url = url, Method = "GET"})
-	else
-		print("Open this link manually: " .. url)
-	end
-end)
-
--- Helper
-local function isBehindTarget(hrp, targetHRP)
-	local distance = (hrp.Position - targetHRP.Position).Magnitude
-	if distance > detectionRange then return false end
-	return true
-end
 
 -- Main loop
 RunService.Heartbeat:Connect(function()
 	if not enabled or cooldown then return end
-	char = lp.Character
+	local char = lp.Character
 	if not (char and char:FindFirstChild("HumanoidRootPart")) then return end
-	hrp = char.HumanoidRootPart
-
+	local hrp = char.HumanoidRootPart
 	for _, name in ipairs(killerNames) do
 		local killer = killersFolder:FindFirstChild(name)
-		if killer and killer:FindFirstChild("HumanoidRootPart") and killer ~= lp.Character then
+		if killer and killer:FindFirstChild("HumanoidRootPart") then
 			local kHRP = killer.HumanoidRootPart
-
-			if isBehindTarget(hrp, kHRP) and killer ~= lastTarget then
+			local distance = (hrp.Position - kHRP.Position).Magnitude
+			if distance <= range then
 				cooldown = true
-				lastTarget = killer
-
-				local behindPos = kHRP.Position - (kHRP.CFrame.LookVector * stabDistanceBehind)
-				local tween = TweenService:Create(hrp, TweenInfo.new(tweenSpeed, Enum.EasingStyle.Linear), {
+				local behindPos = kHRP.Position - (kHRP.CFrame.LookVector * 3.8)
+				local tween = TweenService:Create(hrp, TweenInfo.new(tweenTime, Enum.EasingStyle.Linear), {
 					CFrame = CFrame.new(behindPos, behindPos + kHRP.CFrame.LookVector)
 				})
 				tween:Play()
-
-				tween.Completed:Connect(function()
-					daggerRemote:FireServer("UseActorAbility", "Dagger")
-				end)
-
+				tween.Completed:Wait()
+				daggerRemote:FireServer("UseActorAbility", "Dagger")
 				task.delay(30, function()
-					lastTarget = nil
 					cooldown = false
 				end)
-
 				break
 			end
 		end
