@@ -2,7 +2,6 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
-
 local lp = Players.LocalPlayer
 
 -- GUI Setup
@@ -11,12 +10,8 @@ screenGui.Name = "BackstabToggleGui"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = lp:WaitForChild("PlayerGui")
 
--- Rounded corners function
-local function addCorner(uiElement, radius)
-	local corner = Instance.new("UICorner")
-	corner.CornerRadius = UDim.new(0, radius)
-	corner.Parent = uiElement
-end
+local corner = Instance.new("UICorner")
+corner.CornerRadius = UDim.new(0, 6)
 
 -- Toggle Button
 local toggleButton = Instance.new("TextButton")
@@ -28,7 +23,7 @@ toggleButton.Font = Enum.Font.SourceSansBold
 toggleButton.TextSize = 20
 toggleButton.Text = "Backstab: OFF"
 toggleButton.Parent = screenGui
-addCorner(toggleButton, 6)
+corner:Clone().Parent = toggleButton
 
 -- Range Label
 local rangeLabel = Instance.new("TextLabel")
@@ -53,20 +48,19 @@ rangeBox.PlaceholderText = "Enter range (1 - 10)"
 rangeBox.Text = "4"
 rangeBox.ClearTextOnFocus = false
 rangeBox.Parent = screenGui
-addCorner(rangeBox, 6)
+corner:Clone().Parent = rangeBox
 
--- Signature box (@mocksss)
-local signatureBox = Instance.new("TextLabel")
-signatureBox.Size = UDim2.new(0, 150, 0, 25)
-signatureBox.Position = UDim2.new(0, 10, 0, 105)
-signatureBox.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-signatureBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-signatureBox.Font = Enum.Font.SourceSans
-signatureBox.TextSize = 16
-signatureBox.Text = "@mocksss"
-signatureBox.TextXAlignment = Enum.TextXAlignment.Center
-signatureBox.Parent = screenGui
-addCorner(signatureBox, 6)
+-- Credit box
+local creditBox = Instance.new("TextLabel")
+creditBox.Size = UDim2.new(0, 150, 0, 25)
+creditBox.Position = UDim2.new(0, 10, 0, 105)
+creditBox.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+creditBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+creditBox.Font = Enum.Font.SourceSans
+creditBox.TextSize = 16
+creditBox.Text = "@mocksss"
+creditBox.Parent = screenGui
+corner:Clone().Parent = creditBox
 
 -- Vars
 local enabled = false
@@ -77,14 +71,14 @@ local daggerRemote = ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Net
 local killerNames = { "Jason", "c00lkidd", "JohnDoe", "1x1x1x1", "Noli" }
 local killersFolder = workspace:WaitForChild("Players"):WaitForChild("Killers")
 
--- Toggle button click
+-- GUI toggle
 toggleButton.MouseButton1Click:Connect(function()
 	enabled = not enabled
 	toggleButton.Text = "Backstab: " .. (enabled and "ON" or "OFF")
 	toggleButton.BackgroundColor3 = enabled and Color3.fromRGB(80, 84, 120) or Color3.fromRGB(30, 30, 30)
 end)
 
--- Range box input
+-- TextBox Range Handling
 rangeBox.FocusLost:Connect(function()
 	local input = tonumber(rangeBox.Text)
 	if input and input >= 1 and input <= 10 then
@@ -94,9 +88,10 @@ rangeBox.FocusLost:Connect(function()
 	end
 end)
 
--- Always-around check
-local function inRange(hrp, targetHRP)
-	return (hrp.Position - targetHRP.Position).Magnitude <= range
+-- Always-around detection
+local function isAroundTarget(hrp, targetHRP)
+	local distance = (hrp.Position - targetHRP.Position).Magnitude
+	return distance <= range
 end
 
 -- Main loop
@@ -112,39 +107,29 @@ RunService.Heartbeat:Connect(function()
 		if killer and killer:FindFirstChild("HumanoidRootPart") then
 			local kHRP = killer.HumanoidRootPart
 
-			if inRange(hrp, kHRP) and killer ~= lastTarget then
+			if isAroundTarget(hrp, kHRP) and killer ~= lastTarget then
 				cooldown = true
 				lastTarget = killer
 
-				-- Track behind killer for 1.25s
+				-- Sticky tracking for 1.10 seconds
 				local startTime = tick()
-				local tracking = true
-
-				local trackConn
-				trackConn = RunService.Heartbeat:Connect(function()
-					if not tracking or not (char and char.Parent and kHRP and kHRP.Parent) then
-						if trackConn then trackConn:Disconnect() end
-						return
-					end
-
+				while tick() - startTime < 1.10 and killer.Parent and char.Parent do
 					local behindPos = kHRP.Position - (kHRP.CFrame.LookVector * 4)
-					local tweenInfo = TweenInfo.new(0.05, Enum.EasingStyle.Linear, Enum.EasingDirection.Out)
-					local tween = TweenService:Create(hrp, tweenInfo, {
-						CFrame = CFrame.new(behindPos, behindPos + kHRP.CFrame.LookVector)
-					})
+					local targetCFrame = CFrame.new(behindPos, behindPos + kHRP.CFrame.LookVector)
+					local tween = TweenService:Create(hrp, TweenInfo.new(0.05, Enum.EasingStyle.Linear), {CFrame = targetCFrame})
 					tween:Play()
+					RunService.Heartbeat:Wait()
+				end
 
-					if tick() - startTime >= 1.25 then
-						tracking = false
-						-- Wait 0.2s then dagger
-						task.delay(0.2, function()
-							daggerRemote:FireServer("UseActorAbility", "Dagger")
-						end)
+				-- Fire dagger instantly
+				daggerRemote:FireServer("UseActorAbility", "Dagger")
+
+				-- Wait until out of range, then reset cooldown after 30s
+				task.spawn(function()
+					while isAroundTarget(hrp, kHRP) do
+						RunService.Heartbeat:Wait()
 					end
-				end)
-
-				-- Wait until killer is out of range, then reset cooldown after 30s
-				task.delay(30, function()
+					task.wait(30)
 					lastTarget = nil
 					cooldown = false
 				end)
