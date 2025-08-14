@@ -10,9 +10,6 @@ screenGui.Name = "BackstabToggleGui"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = lp:WaitForChild("PlayerGui")
 
-local corner = Instance.new("UICorner")
-corner.CornerRadius = UDim.new(0, 6)
-
 -- Toggle Button
 local toggleButton = Instance.new("TextButton")
 toggleButton.Size = UDim2.new(0, 150, 0, 40)
@@ -23,7 +20,11 @@ toggleButton.Font = Enum.Font.SourceSansBold
 toggleButton.TextSize = 20
 toggleButton.Text = "Backstab: OFF"
 toggleButton.Parent = screenGui
-corner:Clone().Parent = toggleButton
+
+-- Rounded corners
+local UICorner = Instance.new("UICorner")
+UICorner.CornerRadius = UDim.new(0, 6)
+UICorner.Parent = toggleButton
 
 -- Range Label
 local rangeLabel = Instance.new("TextLabel")
@@ -48,19 +49,19 @@ rangeBox.PlaceholderText = "Enter range (1 - 10)"
 rangeBox.Text = "4"
 rangeBox.ClearTextOnFocus = false
 rangeBox.Parent = screenGui
-corner:Clone().Parent = rangeBox
+Instance.new("UICorner", rangeBox).CornerRadius = UDim.new(0, 6)
 
 -- Credit box
-local creditBox = Instance.new("TextLabel")
-creditBox.Size = UDim2.new(0, 150, 0, 25)
-creditBox.Position = UDim2.new(0, 10, 0, 105)
-creditBox.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-creditBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-creditBox.Font = Enum.Font.SourceSans
-creditBox.TextSize = 16
-creditBox.Text = "@mocksss"
-creditBox.Parent = screenGui
-corner:Clone().Parent = creditBox
+local creditLabel = Instance.new("TextLabel")
+creditLabel.Size = UDim2.new(0, 150, 0, 25)
+creditLabel.Position = UDim2.new(0, 10, 0, 105)
+creditLabel.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+creditLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+creditLabel.Font = Enum.Font.SourceSans
+creditLabel.TextSize = 16
+creditLabel.Text = "@mocksss"
+creditLabel.Parent = screenGui
+Instance.new("UICorner", creditLabel).CornerRadius = UDim.new(0, 6)
 
 -- Vars
 local enabled = false
@@ -88,10 +89,13 @@ rangeBox.FocusLost:Connect(function()
 	end
 end)
 
--- Always-around detection
-local function isAroundTarget(hrp, targetHRP)
+-- Behind check
+local function isBehindTarget(hrp, targetHRP)
 	local distance = (hrp.Position - targetHRP.Position).Magnitude
-	return distance <= range
+	if distance > range then
+		return false
+	end
+	return true -- always around mode
 end
 
 -- Main loop
@@ -107,29 +111,33 @@ RunService.Heartbeat:Connect(function()
 		if killer and killer:FindFirstChild("HumanoidRootPart") then
 			local kHRP = killer.HumanoidRootPart
 
-			if isAroundTarget(hrp, kHRP) and killer ~= lastTarget then
+			if isBehindTarget(hrp, kHRP) and killer ~= lastTarget then
 				cooldown = true
 				lastTarget = killer
 
-				-- Sticky tracking for 1.10 seconds
-				local startTime = tick()
-				while tick() - startTime < 1.10 and killer.Parent and char.Parent do
+				-- Move behind killer until in position, then stab immediately
+				local connection
+				connection = RunService.Heartbeat:Connect(function()
+					if not (char and char.Parent and kHRP and kHRP.Parent) then
+						if connection then connection:Disconnect() end
+						return
+					end
+
 					local behindPos = kHRP.Position - (kHRP.CFrame.LookVector * 4)
 					local targetCFrame = CFrame.new(behindPos, behindPos + kHRP.CFrame.LookVector)
-					local tween = TweenService:Create(hrp, TweenInfo.new(0.05, Enum.EasingStyle.Linear), {CFrame = targetCFrame})
+
+					local tween = TweenService:Create(hrp, TweenInfo.new(0.035, Enum.EasingStyle.Linear), {CFrame = targetCFrame})
 					tween:Play()
-					RunService.Heartbeat:Wait()
-				end
 
-				-- Fire dagger instantly
-				daggerRemote:FireServer("UseActorAbility", "Dagger")
-
-				-- Wait until out of range, then reset cooldown after 30s
-				task.spawn(function()
-					while isAroundTarget(hrp, kHRP) do
-						RunService.Heartbeat:Wait()
+					-- Check if close enough to instantly stab
+					if (hrp.Position - behindPos).Magnitude < 0.5 then
+						if connection then connection:Disconnect() end
+						daggerRemote:FireServer("UseActorAbility", "Dagger")
 					end
-					task.wait(30)
+				end)
+
+				-- Cooldown timer
+				task.delay(30, function()
 					lastTarget = nil
 					cooldown = false
 				end)
