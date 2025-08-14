@@ -4,17 +4,16 @@ local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local lp = Players.LocalPlayer
 
--- Variables
+-- Vars
 local enabled = false
+local range = 4
 local cooldown = false
 local lastTarget = nil
-local range = 4
-local followConnection
 local daggerRemote = ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Network"):WaitForChild("RemoteEvent")
-local killerNames = { "Jason", "c00lkidd", "JohnDoe", "1x1x1x1", "Noli" }
 local killersFolder = workspace:WaitForChild("Players"):WaitForChild("Killers")
+local killerNames = { "Jason", "c00lkidd", "JohnDoe", "1x1x1x1", "Noli" }
 
--- UI Setup
+-- UI Setup (Matrix style purple theme)
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "BackstabToggleGui"
 screenGui.ResetOnSpawn = false
@@ -22,12 +21,10 @@ screenGui.Parent = lp:WaitForChild("PlayerGui")
 
 -- Background Frame
 local bgFrame = Instance.new("Frame")
-bgFrame.Size = UDim2.new(0, 200, 0, 160)
+bgFrame.Size = UDim2.new(0, 180, 0, 150)
 bgFrame.Position = UDim2.new(0, 10, 0, 10)
 bgFrame.BackgroundColor3 = Color3.fromRGB(40, 0, 40)
 bgFrame.BorderSizePixel = 0
-bgFrame.Active = true
-bgFrame.Draggable = true
 bgFrame.Parent = screenGui
 
 -- Gradient
@@ -40,31 +37,18 @@ gradient.Rotation = 90
 gradient.Parent = bgFrame
 
 -- Title
-local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, -30, 0, 25)
-title.Position = UDim2.new(0, 5, 0, 5)
-title.BackgroundTransparency = 1
-title.Text = "mocks' backstab script"
-title.TextColor3 = Color3.fromRGB(180, 140, 255)
-title.Font = Enum.Font.Code
-title.TextSize = 16
-title.TextXAlignment = Enum.TextXAlignment.Left
-title.Parent = bgFrame
-
--- Minimize Button
-local minimizeButton = Instance.new("TextButton")
-minimizeButton.Size = UDim2.new(0, 20, 0, 20)
-minimizeButton.Position = UDim2.new(1, -25, 0, 5)
-minimizeButton.BackgroundColor3 = Color3.fromRGB(60, 0, 60)
-minimizeButton.Text = "-"
-minimizeButton.TextColor3 = Color3.fromRGB(200, 160, 255)
-minimizeButton.Font = Enum.Font.Code
-minimizeButton.TextSize = 18
-minimizeButton.Parent = bgFrame
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size = UDim2.new(1, 0, 0, 30)
+titleLabel.BackgroundTransparency = 1
+titleLabel.Text = "mocks' backstab script"
+titleLabel.TextColor3 = Color3.fromRGB(200, 160, 255)
+titleLabel.Font = Enum.Font.Code
+titleLabel.TextSize = 18
+titleLabel.Parent = bgFrame
 
 -- Toggle Button
 local toggleButton = Instance.new("TextButton")
-toggleButton.Size = UDim2.new(1, -20, 0, 30)
+toggleButton.Size = UDim2.new(1, -20, 0, 35)
 toggleButton.Position = UDim2.new(0, 10, 0, 35)
 toggleButton.BackgroundColor3 = Color3.fromRGB(60, 0, 60)
 toggleButton.TextColor3 = Color3.fromRGB(200, 160, 255)
@@ -73,10 +57,16 @@ toggleButton.TextSize = 18
 toggleButton.Text = "Backstab: OFF"
 toggleButton.Parent = bgFrame
 
--- Range Label
+toggleButton.MouseButton1Click:Connect(function()
+	enabled = not enabled
+	toggleButton.Text = "Backstab: " .. (enabled and "ON" or "OFF")
+	toggleButton.BackgroundColor3 = enabled and Color3.fromRGB(100, 0, 100) or Color3.fromRGB(60, 0, 60)
+end)
+
+-- Range Slider
 local rangeLabel = Instance.new("TextLabel")
 rangeLabel.Size = UDim2.new(1, -20, 0, 20)
-rangeLabel.Position = UDim2.new(0, 10, 0, 70)
+rangeLabel.Position = UDim2.new(0, 10, 0, 75)
 rangeLabel.BackgroundTransparency = 1
 rangeLabel.TextColor3 = Color3.fromRGB(200, 160, 255)
 rangeLabel.Font = Enum.Font.Code
@@ -84,86 +74,88 @@ rangeLabel.TextSize = 16
 rangeLabel.Text = "Range: " .. range
 rangeLabel.Parent = bgFrame
 
--- Range Slider
-local sliderBack = Instance.new("Frame")
-sliderBack.Size = UDim2.new(1, -20, 0, 10)
-sliderBack.Position = UDim2.new(0, 10, 0, 95)
-sliderBack.BackgroundColor3 = Color3.fromRGB(80, 0, 80)
-sliderBack.BorderSizePixel = 0
-sliderBack.Parent = bgFrame
+local slider = Instance.new("TextButton")
+slider.Size = UDim2.new(1, -20, 0, 15)
+slider.Position = UDim2.new(0, 10, 0, 95)
+slider.BackgroundColor3 = Color3.fromRGB(80, 0, 80)
+slider.Text = ""
+slider.AutoButtonColor = false
+slider.Parent = bgFrame
 
-local sliderFill = Instance.new("Frame")
-sliderFill.Size = UDim2.new(range/10, 0, 1, 0)
-sliderFill.BackgroundColor3 = Color3.fromRGB(200, 160, 255)
-sliderFill.BorderSizePixel = 0
-sliderFill.Parent = sliderBack
+local sliderHandle = Instance.new("Frame")
+sliderHandle.Size = UDim2.new(0, 10, 1, 0)
+sliderHandle.Position = UDim2.new((range - 1) / 9, 0, 0, 0)
+sliderHandle.BackgroundColor3 = Color3.fromRGB(200, 160, 255)
+sliderHandle.Parent = slider
 
 local draggingSlider = false
-sliderBack.InputBegan:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-		draggingSlider = true
-	end
+slider.MouseButton1Down:Connect(function()
+	draggingSlider = true
 end)
-sliderBack.InputEnded:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-		draggingSlider = false
-	end
+slider.MouseButton1Up:Connect(function()
+	draggingSlider = false
 end)
 
-RunService.Heartbeat:Connect(function()
-	if draggingSlider then
-		local mouse = lp:GetMouse()
-		local percent = math.clamp((mouse.X - sliderBack.AbsolutePosition.X) / sliderBack.AbsoluteSize.X, 0, 1)
-		range = math.floor(percent * 9) + 1
-		sliderFill.Size = UDim2.new(percent, 0, 1, 0)
+game:GetService("UserInputService").InputChanged:Connect(function(input)
+	if draggingSlider and input.UserInputType == Enum.UserInputType.MouseMovement then
+		local relativeX = math.clamp((input.Position.X - slider.AbsolutePosition.X) / slider.AbsoluteSize.X, 0, 1)
+		range = math.floor(relativeX * 9) + 1
+		sliderHandle.Position = UDim2.new((range - 1) / 9, 0, 0, 0)
 		rangeLabel.Text = "Range: " .. range
 	end
 end)
 
--- Tag
-local tag = Instance.new("TextLabel")
-tag.Size = UDim2.new(1, -10, 0, 20)
-tag.Position = UDim2.new(0, 5, 1, -25)
-tag.BackgroundTransparency = 1
-tag.Text = "@mocksss"
-tag.TextColor3 = Color3.fromRGB(180, 140, 255)
-tag.Font = Enum.Font.Code
-tag.TextSize = 14
-tag.TextXAlignment = Enum.TextXAlignment.Left
-tag.Parent = bgFrame
+-- Minimize Button
+local minimizeButton = Instance.new("TextButton")
+minimizeButton.Size = UDim2.new(0, 20, 0, 20)
+minimizeButton.Position = UDim2.new(1, -25, 0, 5)
+minimizeButton.BackgroundColor3 = Color3.fromRGB(80, 0, 80)
+minimizeButton.TextColor3 = Color3.fromRGB(200, 160, 255)
+minimizeButton.Font = Enum.Font.Code
+minimizeButton.TextSize = 14
+minimizeButton.Text = "-"
+minimizeButton.Parent = bgFrame
 
--- Minimize Logic
 local minimized = false
 minimizeButton.MouseButton1Click:Connect(function()
 	minimized = not minimized
 	for _, child in ipairs(bgFrame:GetChildren()) do
-		if child ~= title and child ~= minimizeButton and child:IsA("GuiObject") then
+		if child ~= titleLabel and child ~= minimizeButton and child ~= gradient then
 			child.Visible = not minimized
 		end
 	end
+	bgFrame.Size = minimized and UDim2.new(0, 180, 0, 30) or UDim2.new(0, 180, 0, 150)
 end)
 
--- Toggle Logic
-toggleButton.MouseButton1Click:Connect(function()
-	enabled = not enabled
-	toggleButton.Text = "Backstab: " .. (enabled and "ON" or "OFF")
-	toggleButton.BackgroundColor3 = enabled and Color3.fromRGB(90, 0, 90) or Color3.fromRGB(60, 0, 60)
+-- Draggable
+local UIS = game:GetService("UserInputService")
+local dragging, dragStart, startPos
+bgFrame.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		dragging = true
+		dragStart = input.Position
+		startPos = bgFrame.Position
+	end
+end)
+bgFrame.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+		dragging = false
+	end
+end)
+UIS.InputChanged:Connect(function(input)
+	if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+		local delta = input.Position - dragStart
+		bgFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+	end
 end)
 
--- Smooth follow function
-local function smoothFollow(hrp, targetHRP)
-	if followConnection then followConnection:Disconnect() end
-	followConnection = RunService.Heartbeat:Connect(function()
-		if not (enabled and targetHRP and targetHRP.Parent and hrp and hrp.Parent) then return end
-		local dist = (hrp.Position - targetHRP.Position).Magnitude
-		if dist > range then return end
-		local desiredPos = targetHRP.Position - (targetHRP.CFrame.LookVector * 4.2)
-		local newPos = hrp.Position:Lerp(desiredPos, 0.35) -- smoothness factor
-		hrp.CFrame = CFrame.new(newPos, targetHRP.Position)
-	end)
+-- Smooth movement + dagger logic
+local function smoothMoveBehind(hrp, targetHRP)
+	local goalPos = targetHRP.Position - (targetHRP.CFrame.LookVector * 4.2)
+	local tween = TweenService:Create(hrp, TweenInfo.new(0.1, Enum.EasingStyle.Linear), {CFrame = CFrame.new(goalPos, goalPos + targetHRP.CFrame.LookVector)})
+	tween:Play()
 end
 
--- Main Loop
 RunService.Heartbeat:Connect(function()
 	if not enabled or cooldown then return end
 	local char = lp.Character
@@ -174,26 +166,30 @@ RunService.Heartbeat:Connect(function()
 		local killer = killersFolder:FindFirstChild(name)
 		if killer and killer:FindFirstChild("HumanoidRootPart") then
 			local kHRP = killer.HumanoidRootPart
-			local distance = (hrp.Position - kHRP.Position).Magnitude
+			local dist = (hrp.Position - kHRP.Position).Magnitude
 
-			if distance <= range and killer ~= lastTarget then
+			if dist <= range and killer ~= lastTarget then
 				lastTarget = killer
 				cooldown = true
 
-				-- Start smooth follow
-				smoothFollow(hrp, kHRP)
+				-- Start following until dagger triggers
+				local followConn
+				followConn = RunService.Heartbeat:Connect(function()
+					if not killer.Parent or not char.Parent then
+						followConn:Disconnect()
+						return
+					end
+					smoothMoveBehind(hrp, kHRP)
+				end)
 
-				-- Trigger dagger
+				-- Fire dagger
 				daggerRemote:FireServer("UseActorAbility", "Dagger")
 
-				-- Wait until out of range
-				task.spawn(function()
-					repeat RunService.Heartbeat:Wait()
-						if not (hrp and kHRP and kHRP.Parent) then break end
-					until (hrp.Position - kHRP.Position).Magnitude > range
+				-- Stop following shortly after dagger
+				task.delay(0.3, function()
+					if followConn then followConn:Disconnect() end
 					lastTarget = nil
 					cooldown = false
-					if followConnection then followConnection:Disconnect() end
 				end)
 
 				break
