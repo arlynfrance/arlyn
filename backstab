@@ -2,20 +2,35 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local GuiService = game:GetService("GuiService")
 
 local lp = Players.LocalPlayer
+local char, hrp
+local camera = workspace.CurrentCamera
 
--- GUI Setup
+-- Vars
+local enabled = false
+local cooldown = false
+local lastTarget = nil
+local detectionRange = 4
+local tweenSpeed = 1.1
+local stabDistanceBehind = 3.8
+local daggerRemote = ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Network"):WaitForChild("RemoteEvent")
+local killerNames = { "Jason", "c00lkidd", "JohnDoe", "1x1x1x1", "Noli" }
+local killersFolder = workspace:WaitForChild("Players"):WaitForChild("Killers")
+
+-- UI Setup
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "BackstabToggleGui"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = lp:WaitForChild("PlayerGui")
 
--- Rounded corners utility
-local function addCorner(instance, radius)
+-- Corner styling helper
+local function roundify(obj, radius)
 	local corner = Instance.new("UICorner")
 	corner.CornerRadius = UDim.new(0, radius)
-	corner.Parent = instance
+	corner.Parent = obj
 end
 
 -- Toggle Button
@@ -28,128 +43,151 @@ toggleButton.Font = Enum.Font.SourceSansBold
 toggleButton.TextSize = 20
 toggleButton.Text = "Backstab: OFF"
 toggleButton.Parent = screenGui
-addCorner(toggleButton, 6)
+roundify(toggleButton, 8)
 
--- Range Label
-local rangeLabel = Instance.new("TextLabel")
-rangeLabel.Size = UDim2.new(0, 150, 0, 20)
-rangeLabel.Position = UDim2.new(0, 10, 0, 55)
-rangeLabel.BackgroundTransparency = 1
-rangeLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-rangeLabel.Font = Enum.Font.SourceSans
-rangeLabel.TextSize = 16
-rangeLabel.Text = "Range:"
-rangeLabel.Parent = screenGui
-
--- TextBox for Range Input
-local rangeBox = Instance.new("TextBox")
-rangeBox.Size = UDim2.new(0, 150, 0, 25)
-rangeBox.Position = UDim2.new(0, 10, 0, 75)
-rangeBox.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-rangeBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-rangeBox.Font = Enum.Font.SourceSans
-rangeBox.TextSize = 16
-rangeBox.PlaceholderText = "Enter range (1 - 10)"
-rangeBox.Text = "4"
-rangeBox.ClearTextOnFocus = false
-rangeBox.Parent = screenGui
-addCorner(rangeBox, 4)
-
--- @mocksss Label
-local mocksssLabel = Instance.new("TextLabel")
-mocksssLabel.Size = UDim2.new(0, 150, 0, 25)
-mocksssLabel.Position = UDim2.new(0, 10, 0, 105)
-mocksssLabel.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-mocksssLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-mocksssLabel.Font = Enum.Font.SourceSans
-mocksssLabel.TextSize = 16
-mocksssLabel.Text = "@mocksss"
-mocksssLabel.TextWrapped = true
-mocksssLabel.Parent = screenGui
-addCorner(mocksssLabel, 4)
-
--- Vars
-local enabled = false
-local cooldown = false
-local range = 4
-local daggerRemote = ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Network"):WaitForChild("RemoteEvent")
-local killerNames = { "Jason", "c00lkidd", "JohnDoe", "1x1x1x1", "Noli" }
-local killersFolder = workspace:WaitForChild("Players"):WaitForChild("Killers")
-local currentConnection
-
--- GUI toggle
 toggleButton.MouseButton1Click:Connect(function()
 	enabled = not enabled
 	toggleButton.Text = "Backstab: " .. (enabled and "ON" or "OFF")
 	toggleButton.BackgroundColor3 = enabled and Color3.fromRGB(80, 84, 120) or Color3.fromRGB(30, 30, 30)
-	if not enabled and currentConnection then
-		currentConnection:Disconnect()
-		currentConnection = nil
-	end
 end)
 
--- TextBox Range Handling
-rangeBox.FocusLost:Connect(function()
-	local input = tonumber(rangeBox.Text)
-	if input and input >= 1 and input <= 10 then
-		range = input
+-- Slider creator
+local function createSlider(yPos, minVal, maxVal, defaultVal, labelText, onValueChanged)
+	local frame = Instance.new("Frame")
+	frame.Size = UDim2.new(0, 150, 0, 40)
+	frame.Position = UDim2.new(0, 10, 0, yPos)
+	frame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+	frame.Parent = screenGui
+	roundify(frame, 8)
+
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.new(1, -10, 0, 15)
+	label.Position = UDim2.new(0, 5, 0, 2)
+	label.BackgroundTransparency = 1
+	label.TextColor3 = Color3.new(1, 1, 1)
+	label.Font = Enum.Font.SourceSans
+	label.TextSize = 14
+	label.TextXAlignment = Enum.TextXAlignment.Left
+	label.Text = labelText .. ": " .. tostring(defaultVal)
+	label.Parent = frame
+
+	local track = Instance.new("Frame")
+	track.Size = UDim2.new(1, -10, 0, 6)
+	track.Position = UDim2.new(0, 5, 0, 25)
+	track.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+	track.Parent = frame
+	roundify(track, 3)
+
+	local fill = Instance.new("Frame")
+	fill.Size = UDim2.new((defaultVal - minVal) / (maxVal - minVal), 0, 1, 0)
+	fill.BackgroundColor3 = Color3.fromRGB(80, 84, 120)
+	fill.Parent = track
+	roundify(fill, 3)
+
+	local handle = Instance.new("Frame")
+	handle.Size = UDim2.new(0, 10, 1.8, 0)
+	handle.BackgroundColor3 = Color3.fromRGB(200, 200, 200)
+	handle.Position = UDim2.new(fill.Size.X.Scale, -5, 0.5, -3)
+	handle.Parent = track
+	roundify(handle, 5)
+
+	local dragging = false
+	local targetX = handle.Position.X.Scale
+
+	handle.InputBegan:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			dragging = true
+		end
+	end)
+
+	UserInputService.InputEnded:Connect(function(input)
+		if input.UserInputType == Enum.UserInputType.MouseButton1 then
+			dragging = false
+		end
+	end)
+
+	RunService.RenderStepped:Connect(function()
+		if dragging then
+			local mousePos = UserInputService:GetMouseLocation().X
+			local relative = math.clamp((mousePos - track.AbsolutePosition.X) / track.AbsoluteSize.X, 0, 1)
+			targetX = relative
+			local value = minVal + (maxVal - minVal) * relative
+			label.Text = labelText .. ": " .. string.format("%.2f", value)
+			onValueChanged(value)
+		end
+		-- Smooth lerp for handle and fill
+		local newX = handle.Position.X.Scale + (targetX - handle.Position.X.Scale) * 0.15
+		handle.Position = UDim2.new(newX, -5, 0.5, -3)
+		fill.Size = UDim2.new(newX, 0, 1, 0)
+	end)
+end
+
+-- Sliders
+createSlider(55, 1, 10, detectionRange, "Detection Range", function(val)
+	detectionRange = val
+end)
+
+createSlider(100, 0.5, 3, tweenSpeed, "Tween Speed", function(val)
+	tweenSpeed = val
+end)
+
+-- @mocksss clickable
+local mockBtn = Instance.new("TextButton")
+mockBtn.Size = UDim2.new(0, 150, 0, 25)
+mockBtn.Position = UDim2.new(0, 10, 0, 145)
+mockBtn.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+mockBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+mockBtn.Font = Enum.Font.SourceSans
+mockBtn.TextSize = 16
+mockBtn.Text = "@mocksss"
+mockBtn.Parent = screenGui
+roundify(mockBtn, 8)
+
+mockBtn.MouseButton1Click:Connect(function()
+	local url = "https://www.youtube.com/@mocksss"
+	setclipboard(url)
+	if syn and syn.request then
+		syn.request({Url = url, Method = "GET"})
 	else
-		rangeBox.Text = tostring(range) -- revert
+		print("Open this link manually: " .. url)
 	end
 end)
 
--- Check if behind
+-- Helper
 local function isBehindTarget(hrp, targetHRP)
 	local distance = (hrp.Position - targetHRP.Position).Magnitude
-	if distance > range then
-		return false
-	end
-	return true -- always around mode
+	if distance > detectionRange then return false end
+	return true
 end
 
 -- Main loop
 RunService.Heartbeat:Connect(function()
 	if not enabled or cooldown then return end
-
-	local char = lp.Character
+	char = lp.Character
 	if not (char and char:FindFirstChild("HumanoidRootPart")) then return end
-	local hrp = char.HumanoidRootPart
+	hrp = char.HumanoidRootPart
 
 	for _, name in ipairs(killerNames) do
 		local killer = killersFolder:FindFirstChild(name)
-		if killer and killer:FindFirstChild("HumanoidRootPart") and killer ~= char then
+		if killer and killer:FindFirstChild("HumanoidRootPart") and killer ~= lp.Character then
 			local kHRP = killer.HumanoidRootPart
 
-			if isBehindTarget(hrp, kHRP) then
+			if isBehindTarget(hrp, kHRP) and killer ~= lastTarget then
 				cooldown = true
+				lastTarget = killer
 
-				if currentConnection then currentConnection:Disconnect() end
-				currentConnection = RunService.Heartbeat:Connect(function()
-					if not (char and char.Parent and kHRP and kHRP.Parent and enabled) then
-						if currentConnection then currentConnection:Disconnect() end
-						currentConnection = nil
-						return
-					end
+				local behindPos = kHRP.Position - (kHRP.CFrame.LookVector * stabDistanceBehind)
+				local tween = TweenService:Create(hrp, TweenInfo.new(tweenSpeed, Enum.EasingStyle.Linear), {
+					CFrame = CFrame.new(behindPos, behindPos + kHRP.CFrame.LookVector)
+				})
+				tween:Play()
 
-					local behindPos = kHRP.Position - (kHRP.CFrame.LookVector * 4)
-					local targetCFrame = CFrame.new(behindPos, behindPos + kHRP.CFrame.LookVector)
-					local tween = TweenService:Create(hrp, TweenInfo.new(0.04, Enum.EasingStyle.Linear), {CFrame = targetCFrame})
-					tween:Play()
-
-					-- Stab instantly when in position
-					if (hrp.Position - behindPos).Magnitude < 0.6 then
-						if currentConnection then currentConnection:Disconnect() end
-						currentConnection = nil
-						daggerRemote:FireServer("UseActorAbility", "Dagger")
-
-						-- Tiny forward push
-						local lungePos = hrp.Position + (hrp.CFrame.LookVector * 0.5)
-						local lungeTween = TweenService:Create(hrp, TweenInfo.new(0.05, Enum.EasingStyle.Linear), {CFrame = CFrame.new(lungePos, lungePos + hrp.CFrame.LookVector)})
-						lungeTween:Play()
-					end
+				tween.Completed:Connect(function()
+					daggerRemote:FireServer("UseActorAbility", "Dagger")
 				end)
 
 				task.delay(30, function()
+					lastTarget = nil
 					cooldown = false
 				end)
 
