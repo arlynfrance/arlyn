@@ -1,5 +1,6 @@
--- Backstab Playground — Exunys-style ESP integrated + GUI + Tween-then-stab
--- Paste into StarterPlayerScripts
+-- MOCKS' BACKSTAB SCRIPT
+-- Standalone LocalScript for StarterPlayerScripts
+-- R6-only Exunys-style ESP (white) + GUI toggles + smooth bottom-center tracers + tween-behind-then-stab
 
 -- Services
 local Players = game:GetService("Players")
@@ -11,25 +12,31 @@ local camera = workspace.CurrentCamera
 
 local lp = Players.LocalPlayer
 
--- ====== CONFIG / STATE ======
-local enabled = false
-local cooldown = false
-local lastTarget = nil
-local range = 4.0
-local mode = "behind"
+-- ======= Config / Defaults =======
+local DEFAULTS = {
+    updateRate = 0.033,          -- seconds per visual update (~30 FPS)
+    tracerSmoothing = 0.45,      -- 0..1 lerp factor for tracer smoothing (higher = snappier)
+    posSmoothing = 0.45,         -- smoothing for name/box position
+    tracerThickness = 2,
+    healthBarWidth = 6,
+    healthGapPx = 3,             -- 3px gap between box and health bar
+    tracerOriginOffset = 36,     -- bottom center offset in px
+    tweenDuration = 0.20,        -- time to tween behind then stab
+    boxWidthRatio = 0.45,        -- box width relative to height
+}
 
--- dagger remote (wrapped)
+-- Remote (safe pcall)
 local daggerRemote
 pcall(function()
     daggerRemote = ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Network"):WaitForChild("RemoteEvent")
 end)
 
--- Killer list for coloring
+-- Killer list (color red)
 local killerNames = { "Jason", "c00lkidd", "JohnDoe", "1x1x1x1", "Noli" }
 local killerSet = {}
-for _, n in ipairs(killerNames) do killerSet[n] = true end
+for _,n in ipairs(killerNames) do killerSet[n] = true end
 
--- ESP settings (persist in session)
+-- ESP state persisted per session
 getgenv().ESP_SETTINGS = getgenv().ESP_SETTINGS or {
     boxes = false,
     filled = false,
@@ -40,40 +47,41 @@ getgenv().ESP_SETTINGS = getgenv().ESP_SETTINGS or {
     tracers = false,
     crosshair = false,
     keepOnDeath = true,
-    updateRate = 0.033, -- seconds
+    updateRate = DEFAULTS.updateRate,
 }
 local ESP = getgenv().ESP_SETTINGS
 
--- Visual constants
-local WHITE = Color3.fromRGB(255,255,255)
-local KILLER_COLOR = Color3.fromRGB(255,80,80)
-local SURV_COLOR = Color3.fromRGB(230,230,230)
+-- Backstab state (keeps original behavior)
+local enabled = false
+local cooldown = false
+local lastTarget = nil
+local range = ESP.range or 4.0
+local mode = ESP.mode or "behind"
 
--- GUI colors / geometry (keeps your style)
+-- Visual constants (white theme)
+local WHITE = Color3.fromRGB(255,255,255)
+local SURV_COLOR = WHITE
+local KILLER_COLOR = Color3.fromRGB(255,80,80)
+
+-- GUI colors & geometry (keeps style)
 local BG_COLOR = Color3.fromRGB(37,40,45)
 local PANEL_COLOR = Color3.fromRGB(42,45,50)
 local ACCENT_COLOR = Color3.fromRGB(56,63,76)
 local BTN_OFF = Color3.fromRGB(95,95,100)
 local BTN_ON  = Color3.fromRGB(120,120,140)
-local SLIDER_COLOR = Color3.fromRGB(110,110,120)
 local TITLE_COLOR = Color3.fromRGB(200,200,200)
 
 local MAIN_W, MAIN_H = 540, 300
 local MAIN_X, MAIN_Y = 10, 10
 local OFF_Y = -350
 
--- Tuneables
-local BOX_FILL_ALPHA = 0.85
-local STROKE_THICKNESS = 1
-local TRACER_THICKNESS = 2
-local HEALTH_BAR_WIDTH = 6
-local NAME_TEXT_SIZE = 16
-local DIST_TEXT_SIZE = 14
-local TRACER_ORIGIN_OFFSET = 36 -- pixels from bottom
+-- Helper lerp
+local function lerp(a,b,t) return a + (b-a)*t end
+local function lerpVector(a,b,t) return a:Lerp(b,t) end
 
--- ====== GUI BUILD (keeps layout, replaced ESP buttons) ======
+-- ======= GUI Build =======
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "BackstabPlaygroundGui"
+screenGui.Name = "MocksBackstabGui"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = lp:WaitForChild("PlayerGui")
 
@@ -93,8 +101,8 @@ outlineStroke.Color = ACCENT_COLOR
 outlineStroke.Thickness = 3
 
 local titleBar = Instance.new("Frame", mainFrame)
-titleBar.Size = UDim2.new(1, 0, 0, 28)
-titleBar.Position = UDim2.new(0, 0, 0, 0)
+titleBar.Size = UDim2.new(1,0,0,28)
+titleBar.Position = UDim2.new(0,0,0,0)
 titleBar.BackgroundColor3 = Color3.fromRGB(60,60,67)
 titleBar.BorderSizePixel = 0
 
@@ -102,7 +110,7 @@ local titleText = Instance.new("TextLabel", titleBar)
 titleText.Size = UDim2.new(1, -12, 1, 0)
 titleText.Position = UDim2.new(0, 6, 0, 0)
 titleText.BackgroundTransparency = 1
-titleText.Text = "BACKSTAB PLAYGROUND"
+titleText.Text = "MOCKS'  BACKSTAB  SCRIPT"
 titleText.Font = Enum.Font.Code
 titleText.TextSize = 14
 titleText.TextColor3 = TITLE_COLOR
@@ -127,7 +135,7 @@ midSep.BackgroundColor3 = ACCENT_COLOR
 midSep.BorderSizePixel = 0
 
 local rightPanel = Instance.new("Frame", mainFrame)
-rightPanel.Size = UDim2.new(0, 170, 1, -40)
+rightPanel.Size = UDim2.new(0, 358, 1, -40) -- expand right panel so two-row flow fits
 rightPanel.Position = UDim2.new(0, 192, 0, 36)
 rightPanel.BackgroundColor3 = PANEL_COLOR
 rightPanel.BorderSizePixel = 0
@@ -138,10 +146,11 @@ innerTop.Position = UDim2.new(0, 6, 0, 32)
 innerTop.BackgroundColor3 = ACCENT_COLOR
 innerTop.BorderSizePixel = 0
 
-local function makeBtn(parent, posY, text)
+-- button maker (we'll arrange in flowing two rows inside rightPanel)
+local function makeBtn(parent, size, pos, text)
     local b = Instance.new("TextButton")
-    b.Size = UDim2.new(0, 120, 0, 28)
-    b.Position = UDim2.new(0, 8, 0, posY)
+    b.Size = size
+    b.Position = pos
     b.BackgroundColor3 = BTN_OFF
     b.BorderSizePixel = 0
     b.Font = Enum.Font.Code
@@ -153,11 +162,11 @@ local function makeBtn(parent, posY, text)
     return b
 end
 
--- left controls
-local backstabBtn = makeBtn(leftPanel, 8, "backstab: off")
+-- left controls (backstab and slider)
+local backstabBtn = makeBtn(leftPanel, UDim2.new(0,150,0,28), UDim2.new(0,8,0,8), "backstab: off")
 local rangeLabel = Instance.new("TextLabel", leftPanel)
-rangeLabel.Size = UDim2.new(0, 150, 0, 18)
-rangeLabel.Position = UDim2.new(0, 8, 0, 42)
+rangeLabel.Size = UDim2.new(0,150,0,18)
+rangeLabel.Position = UDim2.new(0,8,0,42)
 rangeLabel.BackgroundTransparency = 1
 rangeLabel.Font = Enum.Font.Code
 rangeLabel.TextSize = 14
@@ -166,37 +175,56 @@ rangeLabel.Text = ("range: %.1f"):format(range)
 rangeLabel.TextXAlignment = Enum.TextXAlignment.Left
 
 local sliderBg = Instance.new("Frame", leftPanel)
-sliderBg.Size = UDim2.new(0, 150, 0, 12)
-sliderBg.Position = UDim2.new(0, 8, 0, 64)
+sliderBg.Size = UDim2.new(0,150,0,12)
+sliderBg.Position = UDim2.new(0,8,0,64)
 sliderBg.BackgroundColor3 = Color3.fromRGB(60,60,65)
 sliderBg.BorderSizePixel = 0
-
 local sliderFill = Instance.new("Frame", sliderBg)
-sliderFill.Size = UDim2.new((range - 1) / 9, 0, 1, 0)
-sliderFill.BackgroundColor3 = SLIDER_COLOR
+sliderFill.Size = UDim2.new((range - 1)/9, 0, 1, 0)
+sliderFill.Position = UDim2.new(0,0,0,0)
+sliderFill.BackgroundColor3 = Color3.fromRGB(110,110,120)
 sliderFill.BorderSizePixel = 0
-
 local sliderKnob = Instance.new("TextButton", sliderBg)
-sliderKnob.Size = UDim2.new(0, 12, 0, 12)
-sliderKnob.Position = UDim2.new((range - 1) / 9, -6, 0, 0)
+sliderKnob.Size = UDim2.new(0,12,0,12)
+sliderKnob.Position = UDim2.new((range - 1)/9, -6, 0, 0)
 sliderKnob.BackgroundColor3 = Color3.fromRGB(30,30,30)
 sliderKnob.BorderSizePixel = 0
 sliderKnob.AutoButtonColor = false
 sliderKnob.Text = ""
+local modeBtn = makeBtn(leftPanel, UDim2.new(0,150,0,24), UDim2.new(0,8,0,92), ("mode:%s"):format(mode))
 
-local modeBtn = makeBtn(leftPanel, 92, ("mode:%s"):format(mode))
+-- right side: flow two rows (we place types in order, flowing left->right then wrap)
+local buttonWidth, buttonHeight, paddingX, paddingY = 120, 28, 8, 8
+local startX, startY = 8, 8
+local columns = 2
+local function flowPos(index)
+    local col = ((index-1) % columns)
+    local row = math.floor((index-1) / columns)
+    return UDim2.new(0, startX + col*(buttonWidth + paddingX), 0, startY + row*(buttonHeight + paddingY))
+end
 
--- right controls (Exunys features toggles)
-local boxesBtn = makeBtn(rightPanel, 8, ("boxes:%s"):format(ESP.boxes and "on" or "off"))
-local filledBtn = makeBtn(rightPanel, 44, ("fill:%s"):format(ESP.filled and "on" or "off"))
-local outlineBtn = makeBtn(rightPanel, 80, ("outline:%s"):format(ESP.outline and "on" or "off"))
-local namesBtn = makeBtn(rightPanel, 116, ("names:%s"):format(ESP.names and "on" or "off"))
-local distBtn = makeBtn(rightPanel, 152, ("distance:%s"):format(ESP.distance and "on" or "off"))
-local healthBtn = makeBtn(rightPanel, 188, ("health:%s"):format(ESP.health and "on" or "off"))
-local tracersBtn = makeBtn(rightPanel, 224, ("tracers:%s"):format(ESP.tracers and "on" or "off"))
-local crossBtn = makeBtn(rightPanel, 260, ("crosshair:%s"):format(ESP.crosshair and "on" or "off"))
+local rightButtons = {
+    { key = "boxes",   label = function(v) return ("boxes:%s"):format(v and "on" or "off") end },
+    { key = "filled",  label = function(v) return ("fill:%s"):format(v and "on" or "off") end },
+    { key = "outline", label = function(v) return ("outline:%s"):format(v and "on" or "off") end },
+    { key = "names",   label = function(v) return ("names:%s"):format(v and "on" or "off") end },
+    { key = "distance",label = function(v) return ("distance:%s"):format(v and "on" or "off") end },
+    { key = "health",  label = function(v) return ("health:%s"):format(v and "on" or "off") end },
+    { key = "tracers", label = function(v) return ("tracers:%s"):format(v and "on" or "off") end },
+    { key = "crosshair", label = function(v) return ("crosshair:%s"):format(v and "on" or "off") end },
+}
 
--- ====== GUI behavior ======
+local rightBtnsInstances = {}
+for i,info in ipairs(rightButtons) do
+    local pos = flowPos(i)
+    local inst = makeBtn(rightPanel, UDim2.new(0,buttonWidth,0,buttonHeight), pos, info.label(ESP[info.key]))
+    rightBtnsInstances[info.key] = inst
+end
+
+-- helper to update visuals
+local function updateBtnVisual(btn, on) btn.BackgroundColor3 = on and BTN_ON or BTN_OFF end
+
+-- GUI visibility toggling (RightShift)
 local guiVisible = false
 local function slideIn()
     mainFrame.Visible = true
@@ -245,103 +273,58 @@ UserInputService.InputEnded:Connect(function(inp)
     if inp.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
 end)
 
-local function updateBtnVisual(btn, on)
-    btn.BackgroundColor3 = on and BTN_ON or BTN_OFF
-end
-
+-- left buttons behavior
 backstabBtn.MouseButton1Click:Connect(function()
     enabled = not enabled
     backstabBtn.Text = "backstab: " .. (enabled and "on" or "off")
     updateBtnVisual(backstabBtn, enabled)
 end)
-
 modeBtn.MouseButton1Click:Connect(function()
     if mode == "behind" then mode = "around" else mode = "behind" end
-    modeBtn.Text = "mode:" .. mode
+    modeBtn.Text = ("mode:%s"):format(mode)
     ESP.mode = mode
     getgenv().ESP_SETTINGS = ESP
 end)
 
-boxesBtn.MouseButton1Click:Connect(function()
-    ESP.boxes = not ESP.boxes
-    boxesBtn.Text = ("boxes:%s"):format(ESP.boxes and "on" or "off")
-    updateBtnVisual(boxesBtn, ESP.boxes)
-    getgenv().ESP_SETTINGS = ESP
-end)
-filledBtn.MouseButton1Click:Connect(function()
-    ESP.filled = not ESP.filled
-    filledBtn.Text = ("fill:%s"):format(ESP.filled and "on" or "off")
-    updateBtnVisual(filledBtn, ESP.filled)
-    getgenv().ESP_SETTINGS = ESP
-end)
-outlineBtn.MouseButton1Click:Connect(function()
-    ESP.outline = not ESP.outline
-    outlineBtn.Text = ("outline:%s"):format(ESP.outline and "on" or "off")
-    updateBtnVisual(outlineBtn, ESP.outline)
-    getgenv().ESP_SETTINGS = ESP
-end)
-namesBtn.MouseButton1Click:Connect(function()
-    ESP.names = not ESP.names
-    namesBtn.Text = ("names:%s"):format(ESP.names and "on" or "off")
-    updateBtnVisual(namesBtn, ESP.names)
-    getgenv().ESP_SETTINGS = ESP
-end)
-distBtn.MouseButton1Click:Connect(function()
-    ESP.distance = not ESP.distance
-    distBtn.Text = ("distance:%s"):format(ESP.distance and "on" or "off")
-    updateBtnVisual(distBtn, ESP.distance)
-    getgenv().ESP_SETTINGS = ESP
-end)
-healthBtn.MouseButton1Click:Connect(function()
-    ESP.health = not ESP.health
-    healthBtn.Text = ("health:%s"):format(ESP.health and "on" or "off")
-    updateBtnVisual(healthBtn, ESP.health)
-    getgenv().ESP_SETTINGS = ESP
-end)
-tracersBtn.MouseButton1Click:Connect(function()
-    ESP.tracers = not ESP.tracers
-    tracersBtn.Text = ("tracers:%s"):format(ESP.tracers and "on" or "off")
-    updateBtnVisual(tracersBtn, ESP.tracers)
-    getgenv().ESP_SETTINGS = ESP
-end)
-crossBtn.MouseButton1Click:Connect(function()
-    ESP.crosshair = not ESP.crosshair
-    crossBtn.Text = ("crosshair:%s"):format(ESP.crosshair and "on" or "off")
-    updateBtnVisual(crossBtn, ESP.crosshair)
-    getgenv().ESP_SETTINGS = ESP
-end)
+-- connect right side toggle buttons
+for _,info in ipairs(rightButtons) do
+    local key = info.key
+    local btn = rightBtnsInstances[key]
+    btn.MouseButton1Click:Connect(function()
+        ESP[key] = not ESP[key]
+        btn.Text = info.label(ESP[key])
+        updateBtnVisual(btn, ESP[key])
+        getgenv().ESP_SETTINGS = ESP
+    end)
+    updateBtnVisual(btn, ESP[key])
+end
 
--- init visuals
-updateBtnVisual(boxesBtn, ESP.boxes)
-updateBtnVisual(filledBtn, ESP.filled)
-updateBtnVisual(outlineBtn, ESP.outline)
-updateBtnVisual(namesBtn, ESP.names)
-updateBtnVisual(distBtn, ESP.distance)
-updateBtnVisual(healthBtn, ESP.health)
-updateBtnVisual(tracersBtn, ESP.tracers)
-updateBtnVisual(crossBtn, ESP.crosshair)
+-- ensure backstab visual init
 updateBtnVisual(backstabBtn, enabled)
 rangeLabel.Text = ("range: %.1f"):format(range)
-modeBtn.Text = "mode:" .. mode
 
--- ====== Overlay objects ======
+-- ======= Overlay objects & pools (always on top via ZIndex) =======
 local overlayFolder = Instance.new("Folder", screenGui)
 overlayFolder.Name = "ESPOverlays"
 
-local boxOverlays = {}
+-- tables keyed by player.Name
+local boxes = {}
 local nameLabels = {}
 local distLabels = {}
 local healthBars = {}
-local tracerLines = {}
-local crossGui = nil
+local tracers = {}
+local smoothedPos = {}   -- Vector2 smoothed screen pos for box centers
+local smoothedTracerEnd = {} -- Vector2 smoothed end pos for tracers
 
--- creators
+-- create overlay elements
 local function createBox(name)
     local con = Instance.new("Frame")
     con.Name = "Box_" .. name
+    con.Size = UDim2.new(0,60,0,120)
+    con.Position = UDim2.new(0,0,0,0)
     con.BackgroundTransparency = 1
     con.BorderSizePixel = 0
-    con.Size = UDim2.new(0, 60, 0, 120)
+    con.ZIndex = 10
     con.Parent = overlayFolder
 
     local fill = Instance.new("Frame", con)
@@ -349,8 +332,9 @@ local function createBox(name)
     fill.Size = UDim2.new(1,0,1,0)
     fill.Position = UDim2.new(0,0,0,0)
     fill.BackgroundColor3 = WHITE
-    fill.BackgroundTransparency = 1 -- controlled by ESP.filled
+    fill.BackgroundTransparency = 1
     fill.BorderSizePixel = 0
+    fill.ZIndex = 11
 
     local border = Instance.new("Frame", con)
     border.Name = "Border"
@@ -358,10 +342,13 @@ local function createBox(name)
     border.Position = UDim2.new(0,0,0,0)
     border.BackgroundTransparency = 1
     border.BorderSizePixel = 0
+    border.ZIndex = 11
 
-    local stroke = Instance.new("UIStroke", border)
+    local stroke = Instance.new("UIStroke")
+    stroke.Thickness = DEFAULTS.tracerThickness -- will override below
+    stroke.Parent = border
     stroke.Color = WHITE
-    stroke.Thickness = STROKE_THICKNESS
+    stroke.Thickness = DEFAULTS.tracerThickness
     stroke.Enabled = ESP.outline
 
     return con
@@ -373,9 +360,10 @@ local function createNameLabel(name)
     lbl.Size = UDim2.new(0,200,0,20)
     lbl.BackgroundTransparency = 1
     lbl.Font = Enum.Font.Code
-    lbl.TextSize = NAME_TEXT_SIZE
+    lbl.TextSize = 16
     lbl.TextColor3 = WHITE
     lbl.Text = name
+    lbl.ZIndex = 12
     lbl.Parent = overlayFolder
     return lbl
 end
@@ -386,19 +374,21 @@ local function createDistLabel(name)
     lbl.Size = UDim2.new(0,80,0,16)
     lbl.BackgroundTransparency = 1
     lbl.Font = Enum.Font.Code
-    lbl.TextSize = DIST_TEXT_SIZE
+    lbl.TextSize = 14
     lbl.TextColor3 = WHITE
     lbl.Text = ""
+    lbl.ZIndex = 12
     lbl.Parent = overlayFolder
     return lbl
 end
 
 local function createHealthBar(name)
     local bg = Instance.new("Frame")
-    bg.Name = "HealthBG_" .. name
-    bg.Size = UDim2.new(0, HEALTH_BAR_WIDTH, 0, 40)
+    bg.Name = "Health_" .. name
+    bg.Size = UDim2.new(0, DEFAULTS.healthBarWidth, 0, 40)
     bg.BackgroundColor3 = Color3.fromRGB(25,25,25)
     bg.BorderSizePixel = 0
+    bg.ZIndex = 11
     bg.Parent = overlayFolder
 
     local fill = Instance.new("Frame", bg)
@@ -407,49 +397,59 @@ local function createHealthBar(name)
     fill.Position = UDim2.new(0,0,0,0)
     fill.BackgroundColor3 = WHITE
     fill.BorderSizePixel = 0
+    fill.ZIndex = 12
     return bg
 end
 
 local function createTracer(name)
     local t = Instance.new("Frame")
     t.Name = "Tracer_" .. name
-    t.Size = UDim2.new(0, 0, 0, TRACER_THICKNESS)
+    t.Size = UDim2.new(0, 0, 0, DEFAULTS.tracerThickness)
     t.BackgroundColor3 = WHITE
     t.BorderSizePixel = 0
     t.AnchorPoint = Vector2.new(0, 0.5)
+    t.ZIndex = 9
     t.Parent = overlayFolder
     return t
 end
 
 local function createCrosshair()
-    -- small center crosshair using Frames
-    local g = Instance.new("Folder", overlayFolder)
+    local g = Instance.new("Folder")
     g.Name = "Crosshair"
-    local h = 10
+    g.Parent = overlayFolder
+    local size = 10
     local v = Instance.new("Frame", g)
-    v.Size = UDim2.new(0, 1, 0, h)
-    v.Position = UDim2.new(0.5, -0.5, 0.5, -math.floor(h/2))
+    v.Size = UDim2.new(0, 1, 0, size)
+    v.Position = UDim2.new(0.5, -0.5, 0.5, -math.floor(size/2))
     v.BackgroundColor3 = WHITE
     v.BorderSizePixel = 0
-    local hh = Instance.new("Frame", g)
-    hh.Size = UDim2.new(0, h, 0, 1)
-    hh.Position = UDim2.new(0.5, -math.floor(h/2), 0.5, -0.5)
-    hh.BackgroundColor3 = WHITE
-    hh.BorderSizePixel = 0
+    v.ZIndex = 13
+    local h = Instance.new("Frame", g)
+    h.Size = UDim2.new(0, size, 0, 1)
+    h.Position = UDim2.new(0.5, -math.floor(size/2), 0.5, -0.5)
+    h.BackgroundColor3 = WHITE
+    h.BorderSizePixel = 0
+    h.ZIndex = 13
     return g
 end
 
-local function removeAllFor(name)
-    if boxOverlays[name] and boxOverlays[name].Parent then boxOverlays[name]:Destroy() end; boxOverlays[name]=nil
-    if nameLabels[name] and nameLabels[name].Parent then nameLabels[name]:Destroy() end; nameLabels[name]=nil
-    if distLabels[name] and distLabels[name].Parent then distLabels[name]:Destroy() end; distLabels[name]=nil
-    if healthBars[name] and healthBars[name].Parent then healthBars[name]:Destroy() end; healthBars[name]=nil
-    if tracerLines[name] and tracerLines[name].Parent then tracerLines[name]:Destroy() end; tracerLines[name]=nil
-end
+local crossGui = nil
 
-Players.PlayerRemoving:Connect(function(plr) removeAllFor(plr.Name) end)
+-- cleanup when player leaves
+Players.PlayerRemoving:Connect(function(plr) 
+    removeAllFor = function(name) -- quick local reuse
+        if boxes[name] and boxes[name].Parent then boxes[name]:Destroy() end; boxes[name] = nil
+        if nameLabels[name] and nameLabels[name].Parent then nameLabels[name]:Destroy() end; nameLabels[name] = nil
+        if distLabels[name] and distLabels[name].Parent then distLabels[name]:Destroy() end; distLabels[name] = nil
+        if healthBars[name] and healthBars[name].Parent then healthBars[name]:Destroy() end; healthBars[name] = nil
+        if tracers[name] and tracers[name].Parent then tracers[name]:Destroy() end; tracers[name] = nil
+        smoothedPos[name] = nil
+        smoothedTracerEnd[name] = nil
+    end
+    removeAllFor(plr.Name)
+end)
 
--- Utility
+-- ======= Utility functions =======
 local function worldToScreen(vec3)
     local p, on = camera:WorldToViewportPoint(vec3)
     return Vector2.new(p.X, p.Y), on
@@ -473,7 +473,14 @@ local function getHealthPercent(char)
     return nil
 end
 
--- Tween-behind-and-stab
+-- R6 check
+local function isR6(char)
+    if not char then return false end
+    local humanoid = char:FindFirstChildOfClass("Humanoid")
+    return humanoid and humanoid.RigType == Enum.HumanoidRigType.R6
+end
+
+-- ======= Tween behind and stab (keeps behavior) =======
 local function tweenBehindAndStab(targetHRP, duration)
     if not (lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")) then return end
     local hrp = lp.Character.HumanoidRootPart
@@ -508,130 +515,175 @@ local function tweenBehindAndStab(targetHRP, duration)
     end)
 end
 
--- Main loop (throttled by updateRate)
+-- ======= Main update loop (throttled) =======
 local accumulator = 0
 RunService.RenderStepped:Connect(function(dt)
     accumulator = accumulator - dt
     if accumulator > 0 then return end
-    accumulator = ESP.updateRate or 0.033
+    accumulator = ESP.updateRate or DEFAULTS.updateRate
 
     local char = lp.Character
     if not (char and char:FindFirstChild("HumanoidRootPart")) then
-        -- cleanup all overlays
-        for name,_ in pairs(boxOverlays) do removeAllFor(name) end
-        if crossGui then crossGui.Parent = nil; crossGui = nil end
+        -- cleanup overlays
+        for name,_ in pairs(boxes) do
+            if boxes[name] and boxes[name].Parent then boxes[name]:Destroy() end
+            boxes[name] = nil
+            if nameLabels[name] and nameLabels[name].Parent then nameLabels[name]:Destroy() end
+            nameLabels[name] = nil
+            if distLabels[name] and distLabels[name].Parent then distLabels[name]:Destroy() end
+            distLabels[name] = nil
+            if healthBars[name] and healthBars[name].Parent then healthBars[name]:Destroy() end
+            healthBars[name] = nil
+            if tracers[name] and tracers[name].Parent then tracers[name]:Destroy() end
+            tracers[name] = nil
+        end
+        if crossGui and crossGui.Parent then crossGui.Parent = nil end
         return
     end
+
     local hrp = char.HumanoidRootPart
 
-    -- draw crosshair if enabled
+    -- crosshair
     if ESP.crosshair then
         if not crossGui then crossGui = createCrosshair() end
-        crossGui.Parent = overlayFolder
+        if crossGui.Parent ~= overlayFolder then crossGui.Parent = overlayFolder end
     else
         if crossGui and crossGui.Parent then crossGui.Parent = nil end
     end
 
-    -- iterate players
-    for _, other in ipairs(Players:GetPlayers()) do
+    -- iterate other players
+    for _,other in ipairs(Players:GetPlayers()) do
         if other ~= lp then
             local otherChar = other.Character
-            local root = otherChar and (otherChar:FindFirstChild("HumanoidRootPart") or otherChar:FindFirstChild("Torso") or otherChar:FindFirstChild("UpperTorso"))
-            if root or (ESP.keepOnDeath and otherChar) then
+            local isR6Char = isR6(otherChar)
+            -- require R6 (or keep overlay if keepOnDeath and char exists)
+            if isR6Char or (ESP.keepOnDeath and otherChar) then
+                -- find main root (R6 HumanoidRootPart or Torso)
+                local root = otherChar and (otherChar:FindFirstChild("HumanoidRootPart") or otherChar:FindFirstChild("Torso") or otherChar:FindFirstChild("UpperTorso"))
                 local name = other.Name
-                local isKiller = killerSet[name]
-                local color = isKiller and KILLER_COLOR or WHITE
+                local color = killerSet[name] and KILLER_COLOR or SURV_COLOR
+
+                -- compute bounds
+                local top2, bot2, ons, topWorld, botWorld = projectBounds(root)
+                local onsScreen = ons and top2 and bot2
+
+                -- initialize smoothing tables
+                if not smoothedPos[name] then smoothedPos[name] = top2 or Vector2.new(0,0) end
+                if not smoothedTracerEnd[name] then smoothedTracerEnd[name] = bot2 or Vector2.new(0,0) end
+
+                -- target positions (use top2 for name anchor, and bottom center for tracer end)
+                local targetTop = top2 or smoothedPos[name]
+                local targetBot = bot2 or smoothedTracerEnd[name]
+
+                -- smooth positions
+                smoothedPos[name] = smoothedPos[name] and lerpVector(smoothedPos[name], targetTop, DEFAULTS.posSmoothing) or targetTop
+                smoothedTracerEnd[name] = smoothedTracerEnd[name] and lerpVector(smoothedTracerEnd[name], targetBot, DEFAULTS.tracerSmoothing) or targetBot
 
                 -- BOXES
                 if ESP.boxes then
-                    if not boxOverlays[name] then
-                        boxOverlays[name] = createBox(name)
+                    if not boxes[name] then
+                        boxes[name] = createBox(name)
                     end
-                    local box = boxOverlays[name]
-                    local top2, bot2, ons = projectBounds(root)
+                    local box = boxes[name]
                     if ons and top2 and bot2 then
                         local height = math.max(18, math.abs(top2.Y - bot2.Y))
-                        local width = math.max(10, math.floor(height * 0.45))
+                        local width = math.max(10, math.floor(height * DEFAULTS.boxWidthRatio))
+                        -- center at top2.X (top of box is top2.Y)
                         box.Size = UDim2.new(0, width, 0, height)
                         box.Position = UDim2.new(0, top2.X - (width/2), 0, top2.Y)
                         box.Visible = true
+                        -- fill
                         local fill = box:FindFirstChild("Fill")
                         if fill then
                             fill.BackgroundTransparency = ESP.filled and (1 - BOX_FILL_ALPHA) or 1
                             fill.BackgroundColor3 = color
                         end
+                        -- outline stroke color & toggle
                         local border = box:FindFirstChild("Border")
                         if border then
-                            local stroke = border:FindFirstChildOfClass("UIStroke")
-                            if stroke then
-                                stroke.Color = color
-                                stroke.Enabled = ESP.outline
+                            local uiStroke = border:FindFirstChildOfClass("UIStroke")
+                            if uiStroke then
+                                uiStroke.Color = color
+                                uiStroke.Enabled = ESP.outline
+                                uiStroke.Thickness = STROKE_THICKNESS
                             end
                         end
                     else
                         box.Visible = false
                     end
                 else
-                    if boxOverlays[name] then boxOverlays[name]:Destroy(); boxOverlays[name] = nil end
+                    if boxes[name] then boxes[name]:Destroy(); boxes[name] = nil end
                 end
 
-                -- NAMES + DISTANCE
+                -- NAMES + DISTANCE (locked to top center of box)
                 if ESP.names then
                     if not nameLabels[name] then nameLabels[name] = createNameLabel(name) end
-                    local head = otherChar and otherChar:FindFirstChild("Head")
-                    local posWorld = head and (head.Position + Vector3.new(0,0.5,0)) or (root and root.Position + Vector3.new(0,1.5,0))
-                    if posWorld then
-                        local pos2, on = worldToScreen(posWorld)
-                        local lbl = nameLabels[name]
-                        if on then
-                            lbl.Position = UDim2.new(0, pos2.X - (lbl.AbsoluteSize.X/2), 0, pos2.Y - 24)
-                            lbl.Visible = true
-                            lbl.TextColor3 = color
-                            lbl.Text = name
-                        else
-                            lbl.Visible = false
+                    local lbl = nameLabels[name]
+                    local anchorPos = smoothedPos[name]
+                    if anchorPos then
+                        -- place name centered on box top, distance to the right
+                        local text = name
+                        local distText = ""
+                        if ESP.distance and root then
+                            local d = math.floor((hrp.Position - root.Position).Magnitude)
+                            distText = (" %dm"):format(d)
                         end
+                        lbl.Text = text
+                        -- measure label size after text set (AbsoluteSize may be 0 until parent has rendered; we'll approximate by width constant fallback)
+                        local width = lbl.AbsoluteSize.X
+                        if width == 0 then width = 140 end
+                        lbl.Position = UDim2.new(0, math.floor(anchorPos.X - (width/2)), 0, math.floor(anchorPos.Y - 24))
+                        lbl.TextColor3 = color
+                        lbl.Visible = true
+
+                        -- distance label next to name
+                        if ESP.distance then
+                            if not distLabels[name] then distLabels[name] = createDistLabel(name) end
+                            local dl = distLabels[name]
+                            dl.Text = distText
+                            local dwidth = dl.AbsoluteSize.X
+                            if dwidth == 0 then dwidth = 48 end
+                            -- place right after name (with a 4px gap)
+                            dl.Position = UDim2.new(0, math.floor(anchorPos.X + (width/2) + 4), 0, math.floor(anchorPos.Y - 24))
+                            dl.TextColor3 = color
+                            dl.Visible = true
+                        else
+                            if distLabels[name] then distLabels[name].Visible = false end
+                        end
+                    else
+                        if nameLabels[name] then nameLabels[name].Visible = false end
+                        if distLabels[name] then distLabels[name].Visible = false end
                     end
                 else
                     if nameLabels[name] then nameLabels[name]:Destroy(); nameLabels[name] = nil end
-                end
-
-                if ESP.distance then
-                    if not distLabels[name] then distLabels[name] = createDistLabel(name) end
-                    local rootPos = root and root.Position
-                    if rootPos then
-                        local dist = math.floor((hrp.Position - rootPos).Magnitude)
-                        local pos2, on = worldToScreen(rootPos + Vector3.new(0,1.5,0))
-                        local dl = distLabels[name]
-                        if on then
-                            dl.Position = UDim2.new(0, pos2.X + 4, 0, pos2.Y - 12)
-                            dl.Visible = true
-                            dl.Text = tostring(dist) .. "m"
-                            dl.TextColor3 = color
-                        else
-                            dl.Visible = false
-                        end
-                    end
-                else
                     if distLabels[name] then distLabels[name]:Destroy(); distLabels[name] = nil end
                 end
 
-                -- HEALTH
+                -- HEALTH (vertical bar 3px gap to the right of the box)
                 if ESP.health then
                     if not healthBars[name] then healthBars[name] = createHealthBar(name) end
                     local hb = healthBars[name]
-                    local top2, bot2, ons = projectBounds(root)
-                    if ons and top2 and bot2 then
-                        local height = math.max(18, math.abs(top2.Y - bot2.Y))
-                        hb.Size = UDim2.new(0, HEALTH_BAR_WIDTH, 0, height)
-                        hb.Position = UDim2.new(0, top2.X - (math.floor((HEALTH_BAR_WIDTH/2) + (height*0.5))) - 12, 0, top2.Y)
-                        hb.Visible = true
-                        local fill = hb:FindFirstChild("Fill")
-                        if fill then
+                    if boxes[name] and boxes[name].Visible then
+                        -- position to the right of the box with healthGapPx
+                        local boxPos = boxes[name].AbsolutePosition
+                        local boxSize = boxes[name].AbsoluteSize
+                        -- ensure AbsoluteSize is valid (might be 0 if not yet rendered)
+                        local bpX = boxPos.X; local bpY = boxPos.Y; local bw = boxSize.X; local bh = boxSize.Y
+                        if bw == 0 or bh == 0 then
+                            hb.Visible = false
+                        else
+                            local px = math.floor(bpX + bw + DEFAULTS.healthGapPx)
+                            local py = math.floor(bpY)
+                            hb.Size = UDim2.new(0, DEFAULTS.healthBarWidth, 0, bh)
+                            hb.Position = UDim2.new(0, px, 0, py)
+                            local fill = hb:FindFirstChild("Fill")
                             local pct = getHealthPercent(otherChar) or 1
-                            fill.Size = UDim2.new(1,0,pct,0)
-                            fill.Position = UDim2.new(0,0,1-pct,0)
-                            fill.BackgroundColor3 = color
+                            if fill then
+                                fill.Size = UDim2.new(1,0,pct,0)
+                                fill.Position = UDim2.new(0,0,1-pct,0)
+                                fill.BackgroundColor3 = color
+                            end
+                            hb.Visible = true
                         end
                     else
                         hb.Visible = false
@@ -640,37 +692,48 @@ RunService.RenderStepped:Connect(function(dt)
                     if healthBars[name] then healthBars[name]:Destroy(); healthBars[name] = nil end
                 end
 
-                -- TRACERS
+                -- TRACERS (smooth from bottom-center to bottom-of-box)
                 if ESP.tracers then
-                    if not tracerLines[name] then tracerLines[name] = createTracer(name) end
-                    local tracer = tracerLines[name]
-                    local headWorld = (otherChar and otherChar:FindFirstChild("Head") and otherChar.Head.Position) or (root and root.Position + Vector3.new(0,1.5,0))
-                    if headWorld then
-                        local head2, headOn = worldToScreen(headWorld)
-                        local origin = Vector2.new(camera.ViewportSize.X * 0.5, camera.ViewportSize.Y - TRACER_ORIGIN_OFFSET)
-                        local delta = head2 - origin
+                    if not tracers[name] then tracers[name] = createTracer(name) end
+                    local tr = tracers[name]
+                    -- compute smoothed bottom-center of box (use smoothedTracerEnd)
+                    local endPos = smoothedTracerEnd[name] or targetBot
+                    if endPos and (endPos.X ~= 0 or endPos.Y ~= 0) then
+                        -- origin bottom center
+                        local origin = Vector2.new(camera.ViewportSize.X * 0.5, camera.ViewportSize.Y - DEFAULTS.tracerOriginOffset)
+                        local delta = endPos - origin
                         local dist = math.max(2, delta.Magnitude)
                         local angle = math.deg(math.atan2(delta.Y, delta.X))
-                        tracer.Size = UDim2.new(0, math.floor(dist), 0, TRACER_THICKNESS)
-                        tracer.Position = UDim2.new(0, origin.X, 0, origin.Y)
-                        tracer.Rotation = angle
-                        tracer.AnchorPoint = Vector2.new(0, 0.5)
-                        tracer.BackgroundColor3 = color
-                        tracer.Visible = headOn
+                        tr.Size = UDim2.new(0, math.floor(dist), 0, DEFAULTS.tracerThickness)
+                        tr.Position = UDim2.new(0, origin.X, 0, origin.Y)
+                        tr.Rotation = angle
+                        tr.AnchorPoint = Vector2.new(0, 0.5)
+                        tr.BackgroundColor3 = color
+                        tr.Visible = true
+                    else
+                        tr.Visible = false
                     end
                 else
-                    if tracerLines[name] then tracerLines[name].Visible = false end
+                    if tracers[name] and tracers[name].Parent then tracers[name].Visible = false end
                 end
+
             else
-                -- cleanup overlays for that player
-                if boxOverlays[other.Name] or nameLabels[other.Name] or distLabels[other.Name] or healthBars[other.Name] or tracerLines[other.Name] then
-                    removeAllFor(other.Name)
+                -- non-R6 or no char: cleanup
+                if boxes[other.Name] or nameLabels[other.Name] or distLabels[other.Name] or healthBars[other.Name] or tracers[other.Name] then
+                    -- remove them all
+                    if boxes[other.Name] then boxes[other.Name]:Destroy(); boxes[other.Name] = nil end
+                    if nameLabels[other.Name] then nameLabels[other.Name]:Destroy(); nameLabels[other.Name] = nil end
+                    if distLabels[other.Name] then distLabels[other.Name]:Destroy(); distLabels[other.Name] = nil end
+                    if healthBars[other.Name] then healthBars[other.Name]:Destroy(); healthBars[other.Name] = nil end
+                    if tracers[other.Name] then tracers[other.Name]:Destroy(); tracers[other.Name] = nil end
+                    smoothedPos[other.Name] = nil
+                    smoothedTracerEnd[other.Name] = nil
                 end
             end
         end
     end
 
-    -- Backstab detection / tween-to-stab
+    -- Backstab detection: prefer workspace.Players.Killers, else other players
     local killersToCheck = {}
     local killersFolder = workspace:FindFirstChild("Players") and workspace.Players:FindFirstChild("Killers")
     if killersFolder then
@@ -694,39 +757,34 @@ RunService.RenderStepped:Connect(function(dt)
                 cooldown = true
                 lastTarget = kobj
 
-                tweenBehindAndStab(kHRP, 0.20)
+                tweenBehindAndStab(kHRP, DEFAULTS.tweenDuration)
 
+                -- reset cooldown after leaving range
                 task.delay(2, function()
                     RunService.Heartbeat:Wait()
                     while isBehindTarget(hrp, kHRP) do RunService.Heartbeat:Wait() end
                     lastTarget = nil
                     cooldown = false
                 end)
+
                 break
             end
         end
     end
 end)
 
--- Persist GUI labels & visuals
-boxesBtn.Text = ("boxes:%s"):format(ESP.boxes and "on" or "off")
-filledBtn.Text = ("fill:%s"):format(ESP.filled and "on" or "off")
-outlineBtn.Text = ("outline:%s"):format(ESP.outline and "on" or "off")
-namesBtn.Text = ("names:%s"):format(ESP.names and "on" or "off")
-distBtn.Text = ("distance:%s"):format(ESP.distance and "on" or "off")
-healthBtn.Text = ("health:%s"):format(ESP.health and "on" or "off")
-tracersBtn.Text = ("tracers:%s"):format(ESP.tracers and "on" or "off")
-crossBtn.Text = ("crosshair:%s"):format(ESP.crosshair and "on" or "off")
-updateBtnVisual = updateBtnVisual or function(btn,on) btn.BackgroundColor3 = on and BTN_ON or BTN_OFF end
-updateBtnVisual(boxesBtn, ESP.boxes)
-updateBtnVisual(filledBtn, ESP.filled)
-updateBtnVisual(outlineBtn, ESP.outline)
-updateBtnVisual(namesBtn, ESP.names)
-updateBtnVisual(distBtn, ESP.distance)
-updateBtnVisual(healthBtn, ESP.health)
-updateBtnVisual(tracersBtn, ESP.tracers)
-updateBtnVisual(crossBtn, ESP.crosshair)
+-- Persist GUI text & visuals on start
+for _,info in ipairs(rightButtons) do
+    local key = info.key
+    if rightBtnsInstances[key] then
+        rightBtnsInstances[key].Text = info.label(ESP[key])
+        updateBtnVisual(rightBtnsInstances[key], ESP[key])
+    end
+end
 updateBtnVisual(backstabBtn, enabled)
+rangeLabel.Text = ("range: %.1f"):format(range)
+modeBtn.Text = ("mode:%s"):format(mode)
+
 getgenv().ESP_SETTINGS = ESP
 
 -- keep original isBehindTarget logic
