@@ -2,173 +2,124 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
-local GuiService = game:GetService("GuiService")
+local UserInputService = game:GetService("UserInputService")
+
 local lp = Players.LocalPlayer
 
--- GUI Setup
+-- Menu Setup
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "BackstabGui"
+screenGui.Name = "BackstabMenu"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = lp:WaitForChild("PlayerGui")
 
-local function newCorner(radius)
-	local c = Instance.new("UICorner")
-	c.CornerRadius = UDim.new(0, radius)
-	return c
-end
+-- Main Frame
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, 250, 0, 200) -- bigger menu
+mainFrame.Position = UDim2.new(0.5, -125, 0.5, -100)
+mainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
+mainFrame.BorderSizePixel = 0
+mainFrame.Visible = false
+mainFrame.Parent = screenGui
+
+-- Outline
+local outline = Instance.new("UIStroke")
+outline.Color = Color3.fromRGB(128, 0, 255)
+outline.Thickness = 2
+outline.Parent = mainFrame
 
 -- Toggle Button
 local toggleButton = Instance.new("TextButton")
-toggleButton.Size = UDim2.new(0, 150, 0, 40)
-toggleButton.Position = UDim2.new(0, 10, 0, 10)
-toggleButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+toggleButton.Size = UDim2.new(0, 200, 0, 50) -- bigger
+toggleButton.Position = UDim2.new(0, 25, 0, 20)
+toggleButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30) -- OFF color
 toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-toggleButton.Font = Enum.Font.SourceSansBold
-toggleButton.TextSize = 20
+toggleButton.Font = Enum.Font.Code
+toggleButton.TextSize = 22
 toggleButton.Text = "Backstab: OFF"
-toggleButton.Parent = screenGui
-newCorner(6).Parent = toggleButton
+toggleButton.Parent = mainFrame
 
--- Range Slider
+-- Range Label
 local rangeLabel = Instance.new("TextLabel")
-rangeLabel.Size = UDim2.new(0, 150, 0, 20)
-rangeLabel.Position = UDim2.new(0, 10, 0, 55)
+rangeLabel.Size = UDim2.new(0, 200, 0, 25)
+rangeLabel.Position = UDim2.new(0, 25, 0, 80)
 rangeLabel.BackgroundTransparency = 1
 rangeLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-rangeLabel.Font = Enum.Font.SourceSans
-rangeLabel.TextSize = 16
-rangeLabel.Text = "Range: 4"
-rangeLabel.Parent = screenGui
+rangeLabel.Font = Enum.Font.Code
+rangeLabel.TextSize = 18
+rangeLabel.Text = "Range:"
+rangeLabel.Parent = mainFrame
 
-local rangeSliderTrack = Instance.new("Frame")
-rangeSliderTrack.Size = UDim2.new(0, 150, 0, 6)
-rangeSliderTrack.Position = UDim2.new(0, 10, 0, 75)
-rangeSliderTrack.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
-newCorner(3).Parent = rangeSliderTrack
-rangeSliderTrack.Parent = screenGui
-
-local rangeSliderFill = Instance.new("Frame")
-rangeSliderFill.Size = UDim2.new(0.4, 0, 1, 0)
-rangeSliderFill.BackgroundColor3 = Color3.fromRGB(120, 120, 200)
-newCorner(3).Parent = rangeSliderFill
-rangeSliderFill.Parent = rangeSliderTrack
-
-local rangeSliderHandle = Instance.new("Frame")
-rangeSliderHandle.Size = UDim2.new(0, 12, 0, 12)
-rangeSliderHandle.Position = UDim2.new(0.4, -6, -0.5, 0)
-rangeSliderHandle.BackgroundColor3 = Color3.fromRGB(200, 200, 255)
-newCorner(6).Parent = rangeSliderHandle
-rangeSliderHandle.Parent = rangeSliderTrack
-
--- Speed Slider
-local speedLabel = Instance.new("TextLabel")
-speedLabel.Size = UDim2.new(0, 150, 0, 20)
-speedLabel.Position = UDim2.new(0, 10, 0, 95)
-speedLabel.BackgroundTransparency = 1
-speedLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-speedLabel.Font = Enum.Font.SourceSans
-speedLabel.TextSize = 16
-speedLabel.Text = "Tween Speed: 1.1"
-speedLabel.Parent = screenGui
-
-local speedSliderTrack = Instance.new("Frame")
-speedSliderTrack.Size = UDim2.new(0, 150, 0, 6)
-speedSliderTrack.Position = UDim2.new(0, 10, 0, 115)
-speedSliderTrack.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
-newCorner(3).Parent = speedSliderTrack
-speedSliderTrack.Parent = screenGui
-
-local speedSliderFill = Instance.new("Frame")
-speedSliderFill.Size = UDim2.new(0.55, 0, 1, 0)
-speedSliderFill.BackgroundColor3 = Color3.fromRGB(120, 120, 200)
-newCorner(3).Parent = speedSliderFill
-speedSliderFill.Parent = speedSliderTrack
-
-local speedSliderHandle = Instance.new("Frame")
-speedSliderHandle.Size = UDim2.new(0, 12, 0, 12)
-speedSliderHandle.Position = UDim2.new(0.55, -6, -0.5, 0)
-speedSliderHandle.BackgroundColor3 = Color3.fromRGB(200, 200, 255)
-newCorner(6).Parent = speedSliderHandle
-speedSliderHandle.Parent = speedSliderTrack
-
--- @mocksss clickable label
-local mocksssLabel = Instance.new("TextButton")
-mocksssLabel.Size = UDim2.new(0, 150, 0, 25)
-mocksssLabel.Position = UDim2.new(0, 10, 0, 140)
-mocksssLabel.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-mocksssLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-mocksssLabel.Font = Enum.Font.SourceSans
-mocksssLabel.TextSize = 16
-mocksssLabel.Text = "@mocksss"
-mocksssLabel.Parent = screenGui
-newCorner(5).Parent = mocksssLabel
-mocksssLabel.MouseButton1Click:Connect(function()
-	GuiService:OpenBrowserWindow("https://www.youtube.com/@mocksss")
-end)
+-- Range Input
+local rangeBox = Instance.new("TextBox")
+rangeBox.Size = UDim2.new(0, 200, 0, 30)
+rangeBox.Position = UDim2.new(0, 25, 0, 110)
+rangeBox.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+rangeBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+rangeBox.Font = Enum.Font.Code
+rangeBox.TextSize = 18
+rangeBox.PlaceholderText = "Enter range (1 - 10)"
+rangeBox.Text = "4"
+rangeBox.ClearTextOnFocus = false
+rangeBox.Parent = mainFrame
 
 -- Vars
-local enabled = false
-local cooldown = false
+local backstabEnabled = false
 local range = 4
-local tweenTime = 1.1
+local cooldown = false
+local lastTarget = nil
 local daggerRemote = ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Network"):WaitForChild("RemoteEvent")
-local killerNames = { "Jason", "c00lkidd", "JohnDoe", "1x1x1x1", "Noli" }
 local killersFolder = workspace:WaitForChild("Players"):WaitForChild("Killers")
+local killerNames = { "Jason", "c00lkidd", "JohnDoe", "1x1x1x1", "Noli" }
 
--- GUI toggle
+-- Toggle logic
 toggleButton.MouseButton1Click:Connect(function()
-	enabled = not enabled
-	toggleButton.Text = "Backstab: " .. (enabled and "ON" or "OFF")
-	toggleButton.BackgroundColor3 = enabled and Color3.fromRGB(80, 84, 120) or Color3.fromRGB(30, 30, 30)
+	backstabEnabled = not backstabEnabled
+	toggleButton.Text = "Backstab: " .. (backstabEnabled and "ON" or "OFF")
+	toggleButton.BackgroundColor3 = backstabEnabled and Color3.fromRGB(128, 0, 255) or Color3.fromRGB(30, 30, 30)
 end)
 
--- Slider logic
-local function setupSlider(track, fill, handle, label, minVal, maxVal, defaultVal, callback)
-	local dragging = false
-	local function update(inputX)
-		local rel = math.clamp((inputX - track.AbsolutePosition.X) / track.AbsoluteSize.X, 0, 1)
-		fill.Size = UDim2.new(rel, 0, 1, 0)
-		handle.Position = UDim2.new(rel, -handle.AbsoluteSize.X/2, -0.5, 0)
-		local value = math.floor((minVal + (maxVal - minVal) * rel) * 100) / 100
-		callback(value)
+-- Range input logic
+rangeBox.FocusLost:Connect(function()
+	local input = tonumber(rangeBox.Text)
+	if input and input >= 1 and input <= 10 then
+		range = input
+	else
+		rangeBox.Text = tostring(range)
 	end
-	handle.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 then
-			dragging = true
+end)
+
+-- Open/Close menu animation
+local menuOpen = false
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
+	if input.KeyCode == Enum.KeyCode.RightShift then
+		menuOpen = not menuOpen
+		if menuOpen then
+			mainFrame.Visible = true
+			mainFrame.Position = UDim2.new(0.5, -125, 1, 0)
+			TweenService:Create(mainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = UDim2.new(0.5, -125, 0.5, -100)}):Play()
+		else
+			local closeTween = TweenService:Create(mainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Position = UDim2.new(0.5, -125, 1, 0)})
+			closeTween:Play()
+			closeTween.Completed:Connect(function()
+				mainFrame.Visible = false
+			end)
 		end
-	end)
-	handle.InputEnded:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 then
-			dragging = false
-		end
-	end)
-	track.InputBegan:Connect(function(input)
-		if input.UserInputType == Enum.UserInputType.MouseButton1 then
-			update(input.Position.X)
-			dragging = true
-		end
-	end)
-	game:GetService("UserInputService").InputChanged:Connect(function(input)
-		if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-			update(input.Position.X)
-		end
-	end)
-	update(track.AbsolutePosition.X + track.AbsoluteSize.X * ((defaultVal - minVal) / (maxVal - minVal)))
+	end
+end)
+
+-- Check if player is behind
+local function isBehindTarget(hrp, targetHRP)
+	local distance = (hrp.Position - targetHRP.Position).Magnitude
+	if distance > range then return false end
+	local direction = -targetHRP.CFrame.LookVector
+	local toPlayer = (hrp.Position - targetHRP.Position)
+	return toPlayer:Dot(direction) > 0.5
 end
-
-setupSlider(rangeSliderTrack, rangeSliderFill, rangeSliderHandle, rangeLabel, 1, 10, 4, function(val)
-	range = val
-	rangeLabel.Text = "Range: " .. val
-end)
-
-setupSlider(speedSliderTrack, speedSliderFill, speedSliderHandle, speedLabel, 0.5, 3, 1.1, function(val)
-	tweenTime = val
-	speedLabel.Text = "Tween Speed: " .. val
-end)
 
 -- Main loop
 RunService.Heartbeat:Connect(function()
-	if not enabled or cooldown then return end
+	if not backstabEnabled or cooldown then return end
 	local char = lp.Character
 	if not (char and char:FindFirstChild("HumanoidRootPart")) then return end
 	local hrp = char.HumanoidRootPart
@@ -176,17 +127,14 @@ RunService.Heartbeat:Connect(function()
 		local killer = killersFolder:FindFirstChild(name)
 		if killer and killer:FindFirstChild("HumanoidRootPart") then
 			local kHRP = killer.HumanoidRootPart
-			local distance = (hrp.Position - kHRP.Position).Magnitude
-			if distance <= range then
+			if isBehindTarget(hrp, kHRP) and killer ~= lastTarget then
 				cooldown = true
-				local behindPos = kHRP.Position - (kHRP.CFrame.LookVector * 3.8)
-				local tween = TweenService:Create(hrp, TweenInfo.new(tweenTime, Enum.EasingStyle.Linear), {
-					CFrame = CFrame.new(behindPos, behindPos + kHRP.CFrame.LookVector)
-				})
-				tween:Play()
-				tween.Completed:Wait()
+				lastTarget = killer
+				local behindPos = kHRP.Position - (kHRP.CFrame.LookVector * 0.3)
+				hrp.CFrame = CFrame.new(behindPos, behindPos + kHRP.CFrame.LookVector)
 				daggerRemote:FireServer("UseActorAbility", "Dagger")
-				task.delay(30, function()
+				task.delay(2, function()
+					lastTarget = nil
 					cooldown = false
 				end)
 				break
