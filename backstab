@@ -1,199 +1,477 @@
+-- Backstab GUI + ESP + Tracers + Smooth Teleport
+-- Paste as a LocalScript (StarterPlayerScripts / StarterGui)
+
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local camera = workspace.CurrentCamera
+
 local lp = Players.LocalPlayer
 
--- Vars
+-- Settings / Vars
 local enabled = false
-local range = 4
 local cooldown = false
 local lastTarget = nil
-local daggerRemote = ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Network"):WaitForChild("RemoteEvent")
-local killersFolder = workspace:WaitForChild("Players"):WaitForChild("Killers")
-local killerNames = { "Jason", "c00lkidd", "JohnDoe", "1x1x1x1", "Noli" }
+local range = 4.0
+local mode = "behind" -- match screenshot lower-case
+local espEnabled = false
+local tracersEnabled = false
 
--- UI Setup (Matrix style purple theme)
+local daggerRemote = ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Network"):WaitForChild("RemoteEvent")
+local killerNames = { "Jason", "c00lkidd", "JohnDoe", "1x1x1x1", "Noli" }
+local killersFolder = workspace:WaitForChild("Players"):WaitForChild("Killers")
+
+-- Create ScreenGui
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "BackstabToggleGui"
+screenGui.Name = "MocksBackstabGui"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = lp:WaitForChild("PlayerGui")
 
--- Background Frame
-local bgFrame = Instance.new("Frame")
-bgFrame.Size = UDim2.new(0, 180, 0, 150)
-bgFrame.Position = UDim2.new(0, 10, 0, 10)
-bgFrame.BackgroundColor3 = Color3.fromRGB(40, 0, 40)
-bgFrame.BorderSizePixel = 0
-bgFrame.Parent = screenGui
+-- MAIN FRAME (matches screenshot layout)
+local mainFrame = Instance.new("Frame")
+mainFrame.Name = "MainFrame"
+mainFrame.Size = UDim2.new(0, 540, 0, 300) -- wide box like screenshot
+mainFrame.Position = UDim2.new(0, 10, 0, -350) -- start hidden above
+mainFrame.BackgroundColor3 = Color3.fromRGB(34, 38, 45) -- dark inner
+mainFrame.BorderSizePixel = 0
+mainFrame.Active = true
+mainFrame.Draggable = true
+mainFrame.Parent = screenGui
+mainFrame.Visible = false
 
--- Gradient
-local gradient = Instance.new("UIGradient")
-gradient.Color = ColorSequence.new{
-	ColorSequenceKeypoint.new(0, Color3.fromRGB(40, 0, 40)),
-	ColorSequenceKeypoint.new(1, Color3.fromRGB(80, 0, 80))
-}
-gradient.Rotation = 90
-gradient.Parent = bgFrame
+-- Outer purple border stroke
+local outerStroke = Instance.new("UIStroke")
+outerStroke.Parent = mainFrame
+outerStroke.Color = Color3.fromRGB(148, 82, 255)
+outerStroke.Thickness = 3
 
--- Title
-local titleLabel = Instance.new("TextLabel")
-titleLabel.Size = UDim2.new(1, 0, 0, 30)
-titleLabel.BackgroundTransparency = 1
-titleLabel.Text = "mocks' backstab script"
-titleLabel.TextColor3 = Color3.fromRGB(200, 160, 255)
-titleLabel.Font = Enum.Font.Code
-titleLabel.TextSize = 18
-titleLabel.Parent = bgFrame
+-- Title bar (top)
+local titleBar = Instance.new("Frame")
+titleBar.Name = "TitleBar"
+titleBar.Size = UDim2.new(1, 0, 0, 28)
+titleBar.Position = UDim2.new(0, 0, 0, 0)
+titleBar.BorderSizePixel = 0
+titleBar.BackgroundColor3 = Color3.fromRGB(60, 60, 67)
+titleBar.Parent = mainFrame
 
--- Toggle Button
-local toggleButton = Instance.new("TextButton")
-toggleButton.Size = UDim2.new(1, -20, 0, 35)
-toggleButton.Position = UDim2.new(0, 10, 0, 35)
-toggleButton.BackgroundColor3 = Color3.fromRGB(60, 0, 60)
-toggleButton.TextColor3 = Color3.fromRGB(200, 160, 255)
-toggleButton.Font = Enum.Font.Code
-toggleButton.TextSize = 18
-toggleButton.Text = "Backstab: OFF"
-toggleButton.Parent = bgFrame
+local titleText = Instance.new("TextLabel")
+titleText.Size = UDim2.new(1, -12, 1, 0)
+titleText.Position = UDim2.new(0, 6, 0, 0)
+titleText.BackgroundTransparency = 1
+titleText.Text = "MOCKS'  BACKSTAB  SCRIPT"
+titleText.Font = Enum.Font.Code -- close to monospace in appearance
+titleText.TextSize = 14
+titleText.TextColor3 = Color3.fromRGB(200, 200, 200)
+titleText.TextXAlignment = Enum.TextXAlignment.Left
+titleText.Parent = titleBar
 
-toggleButton.MouseButton1Click:Connect(function()
-	enabled = not enabled
-	toggleButton.Text = "Backstab: " .. (enabled and "ON" or "OFF")
-	toggleButton.BackgroundColor3 = enabled and Color3.fromRGB(100, 0, 100) or Color3.fromRGB(60, 0, 60)
-end)
+-- Inner dividing line under title
+local divider = Instance.new("Frame")
+divider.Size = UDim2.new(1, -12, 0, 6)
+divider.Position = UDim2.new(0, 6, 0, 28)
+divider.BackgroundColor3 = Color3.fromRGB(70, 70, 78)
+divider.BorderSizePixel = 0
+divider.Parent = mainFrame
 
--- Range Slider
+-- Left column frame (controls)
+local leftPanel = Instance.new("Frame")
+leftPanel.Size = UDim2.new(0, 170, 1, -40)
+leftPanel.Position = UDim2.new(0, 6, 0, 36)
+leftPanel.BackgroundColor3 = Color3.fromRGB(40, 42, 48)
+leftPanel.BorderSizePixel = 0
+leftPanel.Parent = mainFrame
+
+-- Middle separator (thin vertical line)
+local midSep = Instance.new("Frame")
+midSep.Size = UDim2.new(0, 6, 1, -40)
+midSep.Position = UDim2.new(0, 180, 0, 36)
+midSep.BackgroundColor3 = Color3.fromRGB(70, 70, 78)
+midSep.BorderSizePixel = 0
+midSep.Parent = mainFrame
+
+-- Right panel for small boxes (ESP / Tracers)
+local rightPanel = Instance.new("Frame")
+rightPanel.Size = UDim2.new(0, 170, 1, -40)
+rightPanel.Position = UDim2.new(0, 192, 0, 36)
+rightPanel.BackgroundColor3 = Color3.fromRGB(46, 48, 55)
+rightPanel.BorderSizePixel = 0
+rightPanel.Parent = mainFrame
+
+-- Big lower-right area (dark area like screenshot)
+local bigArea = Instance.new("Frame")
+bigArea.Size = UDim2.new(1, -12 - 178, 1, -46)
+bigArea.Position = UDim2.new(0, 374, 0, 36)
+bigArea.BackgroundColor3 = Color3.fromRGB(32, 34, 39)
+bigArea.BorderSizePixel = 0
+bigArea.Parent = mainFrame
+
+local bigAreaSep = Instance.new("Frame")
+bigAreaSep.Size = UDim2.new(1, 0, 0, 6)
+bigAreaSep.Position = UDim2.new(0, 0, 0, 0)
+bigAreaSep.BackgroundColor3 = Color3.fromRGB(70,70,78)
+bigAreaSep.Parent = bigArea
+
+-- Small standardized button creation helper to match screenshot look
+local function makeSmallButton(parent, name, pos, size, text)
+	local b = Instance.new("TextButton")
+	b.Name = name
+	b.Size = size
+	b.Position = pos
+	b.BackgroundColor3 = Color3.fromRGB(95, 95, 100)
+	b.BorderSizePixel = 0
+	b.Font = Enum.Font.Code
+	b.TextSize = 14
+	b.TextColor3 = Color3.fromRGB(20, 20, 20) -- darker text as in screenshot
+	b.Text = text
+	b.Parent = parent
+	return b
+end
+
+-- Backstab toggle (left column, top)
+local backstabBtn = makeSmallButton(leftPanel, "BackstabBtn", UDim2.new(0, 8, 0, 8), UDim2.new(0, 150, 0, 28), "backstab: off")
+
+-- Range label and slider (left column)
 local rangeLabel = Instance.new("TextLabel")
-rangeLabel.Size = UDim2.new(1, -20, 0, 20)
-rangeLabel.Position = UDim2.new(0, 10, 0, 75)
+rangeLabel.Size = UDim2.new(0, 150, 0, 18)
+rangeLabel.Position = UDim2.new(0, 8, 0, 42)
 rangeLabel.BackgroundTransparency = 1
-rangeLabel.TextColor3 = Color3.fromRGB(200, 160, 255)
 rangeLabel.Font = Enum.Font.Code
-rangeLabel.TextSize = 16
-rangeLabel.Text = "Range: " .. range
-rangeLabel.Parent = bgFrame
+rangeLabel.TextSize = 14
+rangeLabel.TextColor3 = Color3.fromRGB(200,200,200)
+rangeLabel.Text = ("range: %.1f"):format(range)
+rangeLabel.TextXAlignment = Enum.TextXAlignment.Left
+rangeLabel.Parent = leftPanel
 
-local slider = Instance.new("TextButton")
-slider.Size = UDim2.new(1, -20, 0, 15)
-slider.Position = UDim2.new(0, 10, 0, 95)
-slider.BackgroundColor3 = Color3.fromRGB(80, 0, 80)
-slider.Text = ""
-slider.AutoButtonColor = false
-slider.Parent = bgFrame
+-- Slider background
+local sliderBg = Instance.new("Frame")
+sliderBg.Size = UDim2.new(0, 150, 0, 12)
+sliderBg.Position = UDim2.new(0, 8, 0, 64)
+sliderBg.BackgroundColor3 = Color3.fromRGB(60, 60, 65)
+sliderBg.BorderSizePixel = 0
+sliderBg.Parent = leftPanel
 
-local sliderHandle = Instance.new("Frame")
-sliderHandle.Size = UDim2.new(0, 10, 1, 0)
-sliderHandle.Position = UDim2.new((range - 1) / 9, 0, 0, 0)
-sliderHandle.BackgroundColor3 = Color3.fromRGB(200, 160, 255)
-sliderHandle.Parent = slider
+local sliderFill = Instance.new("Frame")
+sliderFill.Size = UDim2.new(0.4, 0, 1, 0) -- initial 40%
+sliderFill.Position = UDim2.new(0, 0, 0, 0)
+sliderFill.BackgroundColor3 = Color3.fromRGB(110,110,120)
+sliderFill.BorderSizePixel = 0
+sliderFill.Parent = sliderBg
 
-local draggingSlider = false
-slider.MouseButton1Down:Connect(function()
-	draggingSlider = true
-end)
-slider.MouseButton1Up:Connect(function()
-	draggingSlider = false
-end)
+local sliderKnob = Instance.new("TextButton")
+sliderKnob.Size = UDim2.new(0, 12, 0, 12)
+sliderKnob.Position = UDim2.new(0.4, -6, 0, 0)
+sliderKnob.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+sliderKnob.BorderSizePixel = 0
+sliderKnob.AutoButtonColor = false
+sliderKnob.Parent = sliderBg
 
-game:GetService("UserInputService").InputChanged:Connect(function(input)
-	if draggingSlider and input.UserInputType == Enum.UserInputType.MouseMovement then
-		local relativeX = math.clamp((input.Position.X - slider.AbsolutePosition.X) / slider.AbsoluteSize.X, 0, 1)
-		range = math.floor(relativeX * 9) + 1
-		sliderHandle.Position = UDim2.new((range - 1) / 9, 0, 0, 0)
-		rangeLabel.Text = "Range: " .. range
+-- Mode button (left column bottom)
+local modeBtn = makeSmallButton(leftPanel, "ModeBtn", UDim2.new(0, 8, 0, 92), UDim2.new(0, 150, 0, 24), "mode:behind")
+
+-- Right panel small boxes for esp and tracers
+local espBtn = makeSmallButton(rightPanel, "ESPBtn", UDim2.new(0, 8, 0, 8), UDim2.new(0, 120, 0, 28), "esp: off")
+local tracerBtn = makeSmallButton(rightPanel, "TracerBtn", UDim2.new(0, 8, 0, 44), UDim2.new(0, 120, 0, 28), "tracers:off")
+
+-- Subtle inner border lines (visual)
+local innerTop = Instance.new("Frame")
+innerTop.Size = UDim2.new(1, -12, 0, 6)
+innerTop.Position = UDim2.new(0, 6, 0, 32)
+innerTop.BorderSizePixel = 0
+innerTop.BackgroundColor3 = Color3.fromRGB(74,74,82)
+innerTop.Parent = mainFrame
+
+-- GUI visibility / pop animation
+local guiVisible = false
+local function toggleGui()
+	guiVisible = not guiVisible
+	if guiVisible then
+		mainFrame.Visible = true
+		-- slide down with easing out
+		TweenService:Create(mainFrame, TweenInfo.new(0.4, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+			Position = UDim2.new(0, 10, 0, 10)
+		}):Play()
+	else
+		-- slide up and hide
+		local t = TweenService:Create(mainFrame, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+			Position = UDim2.new(0, 10, 0, -350)
+		})
+		t:Play()
+		t.Completed:Connect(function()
+			if not guiVisible then
+				mainFrame.Visible = false
+			end
+		end)
+	end
+end
+
+-- RightShift detection
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+	if gameProcessed then return end
+	if input.KeyCode == Enum.KeyCode.RightShift then
+		toggleGui()
 	end
 end)
 
--- Minimize Button
-local minimizeButton = Instance.new("TextButton")
-minimizeButton.Size = UDim2.new(0, 20, 0, 20)
-minimizeButton.Position = UDim2.new(1, -25, 0, 5)
-minimizeButton.BackgroundColor3 = Color3.fromRGB(80, 0, 80)
-minimizeButton.TextColor3 = Color3.fromRGB(200, 160, 255)
-minimizeButton.Font = Enum.Font.Code
-minimizeButton.TextSize = 14
-minimizeButton.Text = "-"
-minimizeButton.Parent = bgFrame
+-- Slider dragging
+local dragging = false
+local function setSliderFromX(x)
+	local absPos = sliderBg.AbsolutePosition.X
+	local absSize = sliderBg.AbsoluteSize.X
+	local localX = math.clamp(x - absPos, 0, absSize)
+	local pct = localX / absSize
+	sliderFill.Size = UDim2.new(pct, 0, 1, 0)
+	sliderKnob.Position = UDim2.new(pct, -6, 0, 0)
+	range = 1 + pct * 9 -- maps 0..1 to 1..10
+	rangeLabel.Text = ("range: %.1f"):format(range)
+end
 
-local minimized = false
-minimizeButton.MouseButton1Click:Connect(function()
-	minimized = not minimized
-	for _, child in ipairs(bgFrame:GetChildren()) do
-		if child ~= titleLabel and child ~= minimizeButton and child ~= gradient then
-			child.Visible = not minimized
-		end
-	end
-	bgFrame.Size = minimized and UDim2.new(0, 180, 0, 30) or UDim2.new(0, 180, 0, 150)
+sliderKnob.MouseButton1Down:Connect(function()
+	dragging = true
 end)
 
--- Draggable
-local UIS = game:GetService("UserInputService")
-local dragging, dragStart, startPos
-bgFrame.InputBegan:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
-		dragging = true
-		dragStart = input.Position
-		startPos = bgFrame.Position
+UserInputService.InputChanged:Connect(function(inp)
+	if dragging and inp.UserInputType == Enum.UserInputType.MouseMovement then
+		setSliderFromX(inp.Position.X)
 	end
 end)
-bgFrame.InputEnded:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
+
+UserInputService.InputEnded:Connect(function(inp)
+	if inp.UserInputType == Enum.UserInputType.MouseButton1 then
 		dragging = false
 	end
 end)
-UIS.InputChanged:Connect(function(input)
-	if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-		local delta = input.Position - dragStart
-		bgFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-	end
+
+-- Button behaviors (state toggles) - keep lower-case -> match screenshot
+backstabBtn.MouseButton1Click:Connect(function()
+	enabled = not enabled
+	backstabBtn.Text = "backstab: " .. (enabled and "on" or "off")
+	backstabBtn.BackgroundColor3 = enabled and Color3.fromRGB(90,180,90) or Color3.fromRGB(95,95,100)
 end)
 
--- Smooth movement + dagger logic
-local function smoothMoveBehind(hrp, targetHRP)
-	local goalPos = targetHRP.Position - (targetHRP.CFrame.LookVector * 4.2)
-	local tween = TweenService:Create(hrp, TweenInfo.new(0.1, Enum.EasingStyle.Linear), {CFrame = CFrame.new(goalPos, goalPos + targetHRP.CFrame.LookVector)})
-	tween:Play()
+modeBtn.MouseButton1Click:Connect(function()
+	if mode == "behind" then
+		mode = "around"
+	else
+		mode = "behind"
+	end
+	modeBtn.Text = "mode:" .. mode
+end)
+
+espBtn.MouseButton1Click:Connect(function()
+	espEnabled = not espEnabled
+	espBtn.Text = "esp: " .. (espEnabled and "on" or "off")
+	espBtn.BackgroundColor3 = espEnabled and Color3.fromRGB(120,120,140) or Color3.fromRGB(95,95,100)
+end)
+
+tracerBtn.MouseButton1Click:Connect(function()
+	tracersEnabled = not tracersEnabled
+	tracerBtn.Text = "tracers:" .. (tracersEnabled and "on" or "off")
+	tracerBtn.BackgroundColor3 = tracersEnabled and Color3.fromRGB(120,120,140) or Color3.fromRGB(95,95,100)
+end)
+
+-- Helper: isBehindTarget (keeps your logic)
+local function isBehindTarget(hrp, targetHRP)
+	local distance = (hrp.Position - targetHRP.Position).Magnitude
+	if distance > range then
+		return false
+	end
+
+	if mode == "around" then
+		return true
+	else
+		local direction = -targetHRP.CFrame.LookVector
+		local toPlayer = (hrp.Position - targetHRP.Position)
+		return toPlayer:Dot(direction) > 0.5
+	end
 end
 
-RunService.Heartbeat:Connect(function()
-	if not enabled or cooldown then return end
+-- ESP / Tracers management tables (screen overlays)
+local espOverlays = {}   -- killerName -> Frame (screengui overlay)
+local tracerOverlays = {}
+
+-- Create overlay containers (parented to screenGui so they sit above main GUI)
+local overlayFolder = Instance.new("Folder", screenGui)
+overlayFolder.Name = "Overlays"
+
+local function createESPOverlay(killer)
+	local name = killer.Name
+	if espOverlays[name] then return espOverlays[name] end
+	local f = Instance.new("Frame")
+	f.Name = "ESP_" .. name
+	f.Size = UDim2.new(0, 80, 0, 110)
+	f.AnchorPoint = Vector2.new(0.5, 0.5)
+	f.BackgroundTransparency = 1
+	f.BorderSizePixel = 0
+	f.Parent = overlayFolder
+
+	local border = Instance.new("Frame")
+	border.Name = "Border"
+	border.Size = UDim2.new(1, 0, 1, 0)
+	border.Position = UDim2.new(0, 0, 0, 0)
+	border.BorderSizePixel = 0
+	border.BackgroundTransparency = 1
+	border.Parent = f
+
+	local stroke = Instance.new("UIStroke")
+	stroke.Parent = border
+	stroke.Color = Color3.fromRGB(200,200,200)
+	stroke.Thickness = 1
+	return f
+end
+
+local function createTracerOverlay(killer)
+	local name = killer.Name
+	if tracerOverlays[name] then return tracerOverlays[name] end
+	local t = Instance.new("ImageLabel")
+	t.Name = "Tracer_" .. name
+	t.BackgroundTransparency = 0
+	t.BackgroundColor3 = Color3.fromRGB(140,140,160)
+	t.BorderSizePixel = 0
+	t.Parent = overlayFolder
+	t.AnchorPoint = Vector2.new(0, 0.5)
+	t.ScaleType = Enum.ScaleType.Slice
+	t.SliceCenter = Rect.new(0,0,0,0)
+	t.Image = ""
+	t.Visible = false
+	return t
+end
+
+-- Clean up overlays for removed killers
+local function removeOverlay(name)
+	if espOverlays[name] then
+		espOverlays[name]:Destroy()
+		espOverlays[name] = nil
+	end
+	if tracerOverlays[name] then
+		tracerOverlays[name]:Destroy()
+		tracerOverlays[name] = nil
+	end
+end
+
+-- Main backstab + ESP/tracer update loop
+RunService.RenderStepped:Connect(function()
+	-- Update overlays every frame for smoothness
 	local char = lp.Character
-	if not (char and char:FindFirstChild("HumanoidRootPart")) then return end
+	if not (char and char:FindFirstChild("HumanoidRootPart")) then
+		-- hide overlays if no character
+		for k,_ in pairs(espOverlays) do removeOverlay(k) end
+		for k,_ in pairs(tracerOverlays) do removeOverlay(k) end
+		return
+	end
 	local hrp = char.HumanoidRootPart
 
+	-- Iterate killers
 	for _, name in ipairs(killerNames) do
 		local killer = killersFolder:FindFirstChild(name)
 		if killer and killer:FindFirstChild("HumanoidRootPart") then
 			local kHRP = killer.HumanoidRootPart
-			local dist = (hrp.Position - kHRP.Position).Magnitude
 
-			if dist <= range and killer ~= lastTarget then
-				lastTarget = killer
+			-- Create overlays if toggled on
+			if espEnabled then
+				if not espOverlays[name] then
+					espOverlays[name] = createESPOverlay(killer)
+				end
+				local overlay = espOverlays[name]
+				-- get screen position of an above-head point
+				local worldPos = kHRP.Position + Vector3.new(0, 2.2, 0)
+				local point, onScreen = camera:WorldToViewportPoint(worldPos)
+				local screenPos = Vector2.new(point.X, point.Y)
+				-- scale box by distance
+				local dist = (camera.CFrame.Position - worldPos).Magnitude
+				local scale = math.clamp(1800 / math.max(dist, 1), 40, 200)
+				local w = math.floor(scale * 0.6)
+				local h = math.floor(scale)
+				overlay.Size = UDim2.new(0, w, 0, h)
+				overlay.Position = UDim2.new(0, screenPos.X - (w/2), 0, screenPos.Y - (h/2))
+				overlay.Visible = onScreen
+			else
+				if espOverlays[name] then removeOverlay(name) end
+			end
+
+			if tracersEnabled then
+				if not tracerOverlays[name] then
+					tracerOverlays[name] = createTracerOverlay(killer)
+				end
+				local tracer = tracerOverlays[name]
+				local worldPos = kHRP.Position + Vector3.new(0, 1.5, 0)
+				local point, onScreen = camera:WorldToViewportPoint(worldPos)
+				local screenPos = Vector2.new(point.X, point.Y)
+				local origin = Vector2.new(camera.ViewportSize.X * 0.5, camera.ViewportSize.Y - 36)
+				local delta = screenPos - origin
+				local dist = delta.Magnitude
+				local angle = math.deg(math.atan2(delta.Y, delta.X))
+				tracer.Size = UDim2.new(0, dist, 0, 2)
+				tracer.Position = UDim2.new(0, origin.X, 0, origin.Y)
+				tracer.Rotation = angle
+				tracer.AnchorPoint = Vector2.new(0, 0.5)
+				tracer.Visible = onScreen
+			else
+				if tracerOverlays[name] then removeOverlay(name) end
+			end
+
+			-- Backstab logic (only when enabled and not cooling)
+			if enabled and not cooldown and isBehindTarget(hrp, kHRP) and killer ~= lastTarget then
 				cooldown = true
+				lastTarget = killer
 
-				-- Start following until dagger triggers
-				local followConn
-				followConn = RunService.Heartbeat:Connect(function()
-					if not killer.Parent or not char.Parent then
-						followConn:Disconnect()
+				local start = tick()
+				local didDagger = false
+
+				local localConn
+				localConn = RunService.Heartbeat:Connect(function()
+					if not (char and char.Parent and kHRP and kHRP.Parent) then
+						if localConn then localConn:Disconnect() end
 						return
 					end
-					smoothMoveBehind(hrp, kHRP)
+					local elapsed = tick() - start
+					if elapsed >= 0.5 then
+						if localConn then localConn:Disconnect() end
+						return
+					end
+
+					-- Smooth glide behind killer with easing
+					local behindPos = kHRP.Position - (kHRP.CFrame.LookVector * 0.3)
+					local targetCFrame = CFrame.new(behindPos, behindPos + kHRP.CFrame.LookVector)
+					local tween = TweenService:Create(hrp, TweenInfo.new(0.25, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut), { CFrame = targetCFrame })
+					tween:Play()
+
+					-- Align look direction briefly and fire dagger once
+					if not didDagger then
+						didDagger = true
+						local faceStart = tick()
+						local faceConn
+						faceConn = RunService.Heartbeat:Connect(function()
+							if tick() - faceStart >= 0.7 or not kHRP or not kHRP.Parent then
+								if faceConn then faceConn:Disconnect() end
+								return
+							end
+							-- keep looking toward their facing direction
+							if hrp and hrp.Parent then
+								hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + kHRP.CFrame.LookVector)
+							end
+						end)
+						-- Fire dagger remote (keep same param usage)
+						pcall(function() daggerRemote:FireServer("UseActorAbility", "Dagger") end)
+					end
 				end)
 
-				-- Fire dagger
-				daggerRemote:FireServer("UseActorAbility", "Dagger")
-
-				-- Stop following shortly after dagger
-				task.delay(0.3, function()
-					if followConn then followConn:Disconnect() end
+				-- Wait and reset cooldown after leaving range
+				task.delay(2, function()
+					-- yield one frame to avoid instantly resetting
+					RunService.Heartbeat:Wait()
+					while isBehindTarget(hrp, kHRP) do
+						RunService.Heartbeat:Wait()
+					end
 					lastTarget = nil
 					cooldown = false
 				end)
-
-				break
 			end
+		else
+			-- killer missing: cleanup overlays
+			if espOverlays[name] then removeOverlay(name) end
+			if tracerOverlays[name] then removeOverlay(name) end
 		end
 	end
 end)
