@@ -1,5 +1,6 @@
--- MOCKS' BACKSTAB SCRIPT + Exunys ESP loader toggle
--- Place as LocalScript in StarterPlayerScripts
+-- MOCKS' BACKSTAB SCRIPT + Exunys ESP toggle
+-- Standalone LocalScript for StarterPlayerScripts
+-- NOTE: This fetches Exunys ESP from GitHub (requires HttpGet + loadstring support).
 
 -- Services
 local Players = game:GetService("Players")
@@ -7,7 +8,6 @@ local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local HttpService = game:GetService("HttpService")
 local camera = workspace.CurrentCamera
 
 local lp = Players.LocalPlayer
@@ -38,6 +38,7 @@ for _,n in ipairs(killerNames) do killerSet[n] = true end
 
 -- ESP state persisted per session
 getgenv().ESP_SETTINGS = getgenv().ESP_SETTINGS or {
+    -- these are the toggles shown in the GUI; Exunys' ESP will be toggled by the single esp button
     boxes = false,
     filled = false,
     outline = false,
@@ -51,19 +52,19 @@ getgenv().ESP_SETTINGS = getgenv().ESP_SETTINGS or {
 }
 local ESP = getgenv().ESP_SETTINGS
 
--- Backstab state (keeps original behavior)
+-- Backstab state
 local enabled = false
 local cooldown = false
 local lastTarget = nil
 local range = ESP.range or 4.0
 local mode = ESP.mode or "behind"
 
--- Visual constants (white theme)
+-- Visual constants
 local WHITE = Color3.fromRGB(255,255,255)
 local SURV_COLOR = WHITE
 local KILLER_COLOR = Color3.fromRGB(255,80,80)
 
--- GUI colors & geometry (keeps style)
+-- GUI colors & geometry
 local BG_COLOR = Color3.fromRGB(37,40,45)
 local PANEL_COLOR = Color3.fromRGB(42,45,50)
 local ACCENT_COLOR = Color3.fromRGB(56,63,76)
@@ -75,17 +76,11 @@ local MAIN_W, MAIN_H = 540, 300
 local MAIN_X, MAIN_Y = 10, 10
 local OFF_Y = -350
 
--- ======= Exunys ESP URL & loader state =======
-local EXUNYS_URL = "https://raw.githubusercontent.com/Exunys/Exunys-ESP/main/src/ESP.lua"
-local exunys_loaded = false
-local exunys_handle = nil  -- possible returned controller/table from the script
-local exunys_raw_source = nil
-
--- Helper lerp
+-- small helpers
 local function lerp(a,b,t) return a + (b-a)*t end
-local function lerpVector(a,b,t) return a:Lerp(b,t) end
+local function lerpVec(a,b,t) return a:Lerp(b,t) end
 
--- ======= GUI Build (your GUI, ESP toggle where old esp button was) =======
+-- ======= GUI Build =======
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "MocksBackstabGui"
 screenGui.ResetOnSpawn = false
@@ -152,7 +147,7 @@ innerTop.Position = UDim2.new(0, 6, 0, 32)
 innerTop.BackgroundColor3 = ACCENT_COLOR
 innerTop.BorderSizePixel = 0
 
--- small button maker
+-- button maker
 local function makeBtn(parent, size, pos, text)
     local b = Instance.new("TextButton")
     b.Size = size
@@ -168,7 +163,7 @@ local function makeBtn(parent, size, pos, text)
     return b
 end
 
--- left controls (backstab and slider)
+-- left controls
 local backstabBtn = makeBtn(leftPanel, UDim2.new(0,150,0,28), UDim2.new(0,8,0,8), "backstab: off")
 local rangeLabel = Instance.new("TextLabel", leftPanel)
 rangeLabel.Size = UDim2.new(0,150,0,18)
@@ -199,7 +194,7 @@ sliderKnob.AutoButtonColor = false
 sliderKnob.Text = ""
 local modeBtn = makeBtn(leftPanel, UDim2.new(0,150,0,24), UDim2.new(0,8,0,92), ("mode:%s"):format(mode))
 
--- right side buttons (flow)
+-- right side flow (two rows)
 local buttonWidth, buttonHeight, paddingX, paddingY = 120, 28, 8, 8
 local startX, startY = 8, 8
 local columns = 2
@@ -209,6 +204,7 @@ local function flowPos(index)
     return UDim2.new(0, startX + col*(buttonWidth + paddingX), 0, startY + row*(buttonHeight + paddingY))
 end
 
+-- RIGHT BUTTONS: keep them but the main Exunys ESP will be toggled with the single button below (espBtn)
 local rightButtons = {
     { key = "boxes",   label = function(v) return ("boxes:%s"):format(v and "on" or "off") end },
     { key = "filled",  label = function(v) return ("fill:%s"):format(v and "on" or "off") end },
@@ -227,6 +223,12 @@ for i,info in ipairs(rightButtons) do
     rightBtnsInstances[info.key] = inst
 end
 
+-- The single Exunys toggle button (placed where the old esp button sat)
+local espBtn = makeBtn(rightPanel, UDim2.new(0,buttonWidth,0,buttonHeight), flowPos(1), ("esp: %s"):format("off"))
+espBtn.Position = flowPos(9) -- place it after the other toggles, or change index to desired slot
+espBtn.Text = ("esp: %s"):format("off") -- lowercase per your request
+
+-- helper to set button visuals
 local function updateBtnVisual(btn, on) btn.BackgroundColor3 = on and BTN_ON or BTN_OFF end
 
 -- GUI visibility toggling (RightShift)
@@ -291,7 +293,7 @@ modeBtn.MouseButton1Click:Connect(function()
     getgenv().ESP_SETTINGS = ESP
 end)
 
--- connect right side toggle buttons (these are local options; Exunys script is loaded/controlled by the dedicated esp toggle below)
+-- connect right side small toggles (these only update local ESP settings, Exunys ESP will be toggled separately)
 for _,info in ipairs(rightButtons) do
     local key = info.key
     local btn = rightBtnsInstances[key]
@@ -304,236 +306,112 @@ for _,info in ipairs(rightButtons) do
     updateBtnVisual(btn, ESP[key])
 end
 
--- ensure backstab visual init
 updateBtnVisual(backstabBtn, enabled)
 rangeLabel.Text = ("range: %.1f"):format(range)
 
--- ======= Overlay placeholders (kept in script so old features remain intact) =======
-local overlayFolder = Instance.new("Folder", screenGui)
-overlayFolder.Name = "ESPOverlays"
+-- ======= Exunys loader / toggler =======
+local EXUNYS_RAW_URL = "https://raw.githubusercontent.com/Exunys/Exunys-ESP/main/src/ESP.lua"
+local exunysInstance = nil
+local exunys_source_cache = nil
+local exunys_enabled = false
 
--- NOTE: we are replacing the old box/skeleton implementation with Exunys' ESP when user toggles it on.
--- The local ESP toggles (boxes/names/tracers) control session flags; the actual Exunys script will use its own logic.
-
--- ======= Exunys ESP loader & toggler =======
--- Robust HTTP GET function using common environments
-local function httpGet(url)
-    -- Try several common exploit/runtime functions then fall back to HttpService
-    local ok, res
-
-    -- syn.request
-    if type(syn) == "table" and syn.request then
-        ok, res = pcall(function() return syn.request({ Url = url, Method = "GET" }).Body end)
-        if ok and res then return res end
-    end
-
-    -- http.request (Fluxus / etc)
-    if type(http) == "table" and http.request then
-        ok, res = pcall(function() return http.request({ Url = url, Method = "GET" }).Body end)
-        if ok and res then return res end
-    end
-
-    -- request (older)
-    if type(request) == "function" then
-        ok, res = pcall(function() return request({ Url = url, Method = "GET" }).Body end)
-        if ok and res then return res end
-    end
-
-    -- game:HttpGet (roblox)
-    if type(game.HttpGet) == "function" then
-        ok, res = pcall(function() return game:HttpGet(url) end)
-        if ok and res then return res end
-    end
-
-    -- HttpService:GetAsync (requires HttpEnabled)
-    ok, res = pcall(function() return HttpService:GetAsync(url) end)
-    if ok and res then return res end
-
-    return nil, "http get failed"
-end
-
-local function try_disable_exunys()
-    -- Try multiple common cleanup interfaces the remote script might expose
-    -- 1) if exunys_handle is a table with common functions, call them
-    if exunys_handle then
+local function tryCleanupExunys()
+    -- attempt common cleanup methods
+    local ok
+    if exunysInstance then
+        -- common patterns: module returns table with Destroy/Stop/Disable
         pcall(function()
-            if type(exunys_handle.Toggle) == "function" then exunys_handle.Toggle(false) end
-            if type(exunys_handle.Disable) == "function" then exunys_handle.Disable() end
-            if type(exunys_handle.Unload) == "function" then exunys_handle.Unload() end
-            if type(exunys_handle.Destroy) == "function" then exunys_handle.Destroy() end
-            if type(exunys_handle.Stop) == "function" then exunys_handle.Stop() end
+            if type(exunysInstance.Destroy) == "function" then exunysInstance.Destroy(exunysInstance) end
+        end)
+        pcall(function()
+            if type(exunysInstance.Stop) == "function" then exunysInstance.Stop(exunysInstance) end
+        end)
+        pcall(function()
+            if type(exunysInstance.Disable) == "function" then exunysInstance.Disable(exunysInstance) end
         end)
     end
-
-    -- 2) check getgenv/_G for common globals
+    -- many ESP modules set globals; attempt to clear some known global names
+    pcall(function() getgenv().Exunys = nil end)
+    pcall(function() getgenv().ESP = nil end)
+    pcall(function() getgenv().ESP_MODULE = nil end)
+    -- try to clear Drawing cache if exposed
     pcall(function()
-        if getgenv and getgenv().ExunysESP and type(getgenv().ExunysESP.Destroy) == "function" then
-            getgenv().ExunysESP.Destroy()
-        end
-        if getgenv and getgenv().ESP and type(getgenv().ESP.Disable) == "function" then
-            getgenv().ESP.Disable()
-        end
-        if _G and _G.ExunysESP and type(_G.ExunysESP.Destroy) == "function" then
-            _G.ExunysESP.Destroy()
-        end
-        if _G and _G.ESP and type(_G.ESP.Disable) == "function" then
-            _G.ESP.Disable()
-        end
+        if typeof(cleardrawcache) == "function" then cleardrawcache()
+        elseif rawget(_G, "Cleardrawcache") then pcall(rawget(_G, "Cleardrawcache")) end
     end)
-
-    -- 3) remove likely GUI containers created by remote script (best-effort)
-    pcall(function()
-        -- common names: "ESP", "Exunys-ESP", "ExunysESP", "ESPGui"
-        local candidates = {
-            screenGui:FindFirstChild("ESP"),
-            screenGui:FindFirstChild("ExunysESP"),
-            screenGui:FindFirstChild("Exunys-ESP"),
-            screenGui:FindFirstChild("ESPGui"),
-            Players.LocalPlayer:FindFirstChild("PlayerGui") and Players.LocalPlayer.PlayerGui:FindFirstChild("ESP"),
-        }
-        for _,c in ipairs(candidates) do
-            if c and c.Parent then pcall(function() c:Destroy() end) end
-        end
-        -- also check CoreGui (if remote used CoreGui)
-        if game:FindService("CoreGui") then
-            for _,name in ipairs({"ESP","ExunysESP","Exunys-ESP","ESPGui"}) do
-                local cg = false
-                pcall(function() cg = game.CoreGui:FindFirstChild(name) end)
-                if cg and cg.Parent then pcall(function() cg:Destroy() end) end
-            end
-        end
-    end)
-
-    -- 4) clear reference
-    exunys_loaded = false
-    exunys_handle = nil
+    exunysInstance = nil
 end
 
-local function load_exunys_script_once()
-    if exunys_loaded then return true end
-
-    local source, err = httpGet(EXUNYS_URL)
-    if not source then
-        warn("Failed to fetch Exunys ESP:", err)
-        return false, err
+local function loadAndStartExunys()
+    -- If source cached, reuse; otherwise attempt HttpGet
+    local src = exunys_source_cache
+    if not src then
+        local ok, res = pcall(function()
+            -- prefer exploit's HttpGet
+            if type(game.HttpGet) == "function" then
+                return game:HttpGet(EXUNYS_RAW_URL)
+            elseif type(game.HttpGetAsync) == "function" then
+                return game:HttpGetAsync(EXUNYS_RAW_URL)
+            else
+                error("HttpGet not available")
+            end
+        end)
+        if not ok or not res then
+            warn("[ExunysLoader] failed to download Exunys ESP:", res)
+            return false
+        end
+        src = res
+        exunys_source_cache = src
     end
 
-    exunys_raw_source = source
-
-    -- Run the fetched code in a sandboxed environment with getgenv exposed (so the remote script can persist)
-    local fn, loadErr = loadstring(source)
-    if not fn then
-        warn("Failed to load Exunys ESP source:", loadErr)
-        return false, loadErr
-    end
-
-    -- Protected call to execute script
-    local ok, ret = pcall(function()
-        return fn()
+    -- execute source with loadstring (exploit environments provide loadstring)
+    local ok2, result = pcall(function()
+        if type(loadstring) ~= "function" then
+            -- some environments provide loadstring under different name or use load; try load
+            if type(load) == "function" then
+                return load(src)()
+            else
+                error("loadstring/load not available")
+            end
+        else
+            return loadstring(src)()
+        end
     end)
-    if not ok then
-        warn("Exunys ESP runtime error:", ret)
-        return false, ret
+    if not ok2 then
+        warn("[ExunysLoader] failed to execute Exunys ESP:", result)
+        return false
     end
-
-    -- If the script returned a controller table, store it
-    if type(ret) == "table" then
-        exunys_handle = ret
-    else
-        -- try to detect common global placements
-        exunys_handle = getgenv().ExunysESP or getgenv().ESP or _G.ExunysESP or _G.ESP or ret
-    end
-
-    exunys_loaded = true
+    -- many scripts return a table or set globals; capture returned instance if any
+    exunysInstance = result
     return true
 end
 
--- Dedicated ESP toggle button (replaces old esp system)
--- Find the original "esp button spot" — we're using the rightBtnsInstances['boxes'] placement earlier.
--- But user asked specifically to have a single button toggle Exunys's script where the old ESP button was.
--- We'll add an "espToggleBtn" in that spot (we'll reuse the 'boxes' button instance)
-local espToggleBtn = rightBtnsInstances["boxes"]
-if not espToggleBtn then
-    -- fallback: create small button at top-left of rightPanel
-    espToggleBtn = makeBtn(rightPanel, UDim2.new(0,120,0,28), UDim2.new(0,8,0,8), "esp: off")
-    rightBtnsInstances["boxes"] = espToggleBtn
-end
-
--- Initialize label lowercase
-local function setEspBtnState(on)
-    espToggleBtn.Text = ("esp: %s"):format(on and "on" or "off")
-    updateBtnVisual(espToggleBtn, on)
-end
-setEspBtnState(false)
-
--- Toggle behavior
-espToggleBtn.MouseButton1Click:Connect(function()
-    -- If not loaded, try to load and run the remote script
-    if not exunys_loaded then
-        local ok, err = load_exunys_script_once()
-        if not ok then
-            -- failed: show feedback and keep it off
-            setEspBtnState(false)
-            warn("Exunys ESP load failed:", err)
-            return
+-- esp button click: toggle Exunys on/off
+espBtn.MouseButton1Click:Connect(function()
+    if not exunys_enabled then
+        -- turn ON
+        local ok = loadAndStartExunys()
+        if ok then
+            exunys_enabled = true
+            espBtn.Text = ("esp: %s"):format("on")
+            updateBtnVisual(espBtn, true)
+        else
+            espBtn.Text = ("esp: %s"):format("off")
+            updateBtnVisual(espBtn, false)
         end
-        -- If loaded, try to enable it (if the remote script exposes Toggle or Enable)
-        local enabledNow = true
-        local toggled = false
-        pcall(function()
-            if exunys_handle and type(exunys_handle.Toggle) == "function" then
-                exunys_handle.Toggle(true)
-                toggled = true
-            elseif exunys_handle and type(exunys_handle.Enable) == "function" then
-                exunys_handle.Enable(true)
-                toggled = true
-            elseif getgenv().ExunysESP and type(getgenv().ExunysESP.Toggle) == "function" then
-                getgenv().ExunysESP.Toggle(true)
-                toggled = true
-            elseif getgenv().ESP and type(getgenv().ESP.Toggle) == "function" then
-                getgenv().ESP.Toggle(true)
-                toggled = true
-            end
-        end)
-        -- If remote didn't provide toggle, we assume running the script enabled visuals.
-        exunys_loaded = true
-        setEspBtnState(enabledNow)
     else
-        -- attempt to disable/unload
-        try_disable_exunys()
-        setEspBtnState(false)
+        -- turn OFF: attempt to cleanup gracefully
+        tryCleanupExunys()
+        exunys_enabled = false
+        espBtn.Text = ("esp: %s"):format("off")
+        updateBtnVisual(espBtn, false)
     end
 end)
 
--- ======= Backstab/Tween logic (keeps prior behavior) =======
-local function worldToScreen(vec3)
-    local p, on = camera:WorldToViewportPoint(vec3)
-    return Vector2.new(p.X, p.Y), on
-end
-
-local function projectBounds(rootPart)
-    if not rootPart then return nil end
-    local topWorld = rootPart.Position + Vector3.new(0, 2.4, 0)
-    local botWorld = rootPart.Position + Vector3.new(0, -1.0, 0)
-    local top2, topOn = worldToScreen(topWorld)
-    local bot2, botOn = worldToScreen(botWorld)
-    return top2, bot2, (topOn or botOn), topWorld, botWorld
-end
-
-local function getHealthPercent(char)
-    if not char then return nil end
-    local humanoid = char:FindFirstChildOfClass("Humanoid")
-    if humanoid and humanoid.Health and humanoid.MaxHealth and humanoid.MaxHealth > 0 then
-        return math.clamp(humanoid.Health / humanoid.MaxHealth, 0, 1)
-    end
-    return nil
-end
-
-local function isR6(char)
-    if not char then return false end
-    local humanoid = char:FindFirstChildOfClass("Humanoid")
-    return humanoid and humanoid.RigType == Enum.HumanoidRigType.R6
-end
+-- ======= Overlay/backstab/etc (kept from your last working script) =======
+-- Create only the local overlays needed for backstab UI, backstab detection, and tweening.
+-- (For brevity, this section implements the tween-behind-and-stab and candidate selection logic.
+--  The Exunys ESP draws its own overlays; small GUI toggles above control preferences saved in getgenv.)
 
 local function tweenBehindAndStab(targetHRP, duration)
     if not (lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")) then return end
@@ -569,7 +447,7 @@ local function tweenBehindAndStab(targetHRP, duration)
     end)
 end
 
--- isBehindTarget (original logic)
+-- isBehindTarget logic preserved
 function isBehindTarget(hrp, targetHRP)
     local dist = (hrp.Position - targetHRP.Position).Magnitude
     if dist > range then return false end
@@ -579,13 +457,13 @@ function isBehindTarget(hrp, targetHRP)
     return toPlayer:Dot(direction) > 0.5
 end
 
--- ======= Main loop for backstab detection (RenderStepped) =======
+-- Backstab detection loop (keeps previous behavior)
 RunService.RenderStepped:Connect(function()
     local char = lp.Character
     if not (char and char:FindFirstChild("HumanoidRootPart")) then return end
     local hrp = char.HumanoidRootPart
 
-    -- Build list of candidate targets: prefer workspace.Players.Killers, else other players' characters
+    -- Build list of candidate targets
     local killersToCheck = {}
     local killersFolder = workspace:FindFirstChild("Players") and workspace.Players:FindFirstChild("Killers")
     if killersFolder then
@@ -608,37 +486,31 @@ RunService.RenderStepped:Connect(function()
             if enabled and not cooldown and isBehindTarget(hrp, kHRP) and kobj ~= lastTarget then
                 cooldown = true
                 lastTarget = kobj
-
                 tweenBehindAndStab(kHRP, DEFAULTS.tweenDuration)
-
                 task.delay(2, function()
                     RunService.Heartbeat:Wait()
                     while isBehindTarget(hrp, kHRP) do RunService.Heartbeat:Wait() end
                     lastTarget = nil
                     cooldown = false
                 end)
-
                 break
             end
         end
     end
 end)
 
--- Persist GUI text & visuals on start
+-- final UI text init
 for _,info in ipairs(rightButtons) do
     local key = info.key
     if rightBtnsInstances[key] then
-        rightBtnsInstances[key].Text = info.label(ESP[info.key])
-        updateBtnVisual(rightBtnsInstances[key], ESP[info.key])
+        rightBtnsInstances[key].Text = info.label(ESP[key])
+        updateBtnVisual(rightBtnsInstances[key], ESP[key])
     end
 end
 updateBtnVisual(backstabBtn, enabled)
 rangeLabel.Text = ("range: %.1f"):format(range)
+modeBtn.Text = ("mode:%s"):format(mode)
 
 getgenv().ESP_SETTINGS = ESP
 
--- Final note: if the remote Exunys script changes API, the loader uses many fallbacks to try to toggle/unload it.
--- If you want a guaranteed programmatic 'off', modify the remote script to expose a known "Destroy" or "Toggle" function and
--- return it at the end so this loader can call it.
-
-print("Mocks' Backstab + Exunys loader script initialized.")
+-- End of LocalScript
