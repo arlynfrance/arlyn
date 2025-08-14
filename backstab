@@ -1,154 +1,236 @@
--- Place this LocalScript inside StarterPlayer > StarterPlayerScripts
--- You must have TweenService and a UI gradient in use
-
+--// Services
 local Players = game:GetService("Players")
-local TweenService = game:GetService("TweenService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local lp = Players.LocalPlayer
 
-local player = Players.LocalPlayer
-local char = player.Character or player.CharacterAdded:Wait()
-local humanoidRootPart = char:WaitForChild("HumanoidRootPart")
+--// Vars
+local enabled = false
+local cooldown = false
+local lastTarget = nil
+local range = 4
+local tweenSpeed = 1.15
+local daggerRemote = ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Network"):WaitForChild("RemoteEvent")
+local killerName = "Killer" -- change if needed
+local killersFolder = workspace:WaitForChild("Players"):WaitForChild("Killers")
 
-local range = 7.2 -- default range, can be changed with slider
-local backstabEnabled = false
-local tweening = false
-
--- // UI Setup
+--// GUI Setup
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "BackstabUI"
-screenGui.Parent = player:WaitForChild("PlayerGui")
-screenGui.IgnoreGuiInset = true
+screenGui.Name = "BackstabToggleGui"
 screenGui.ResetOnSpawn = false
+screenGui.Parent = lp:WaitForChild("PlayerGui")
 
--- Background frame
-local bgFrame = Instance.new("Frame")
-bgFrame.Size = UDim2.new(0, 250, 0, 140)
-bgFrame.Position = UDim2.new(0.05, 0, 0.2, 0)
-bgFrame.BackgroundColor3 = Color3.fromRGB(48, 29, 84) -- dark purple
-bgFrame.BorderSizePixel = 0
-bgFrame.Parent = screenGui
+-- Drag frame container
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, 200, 0, 180)
+mainFrame.Position = UDim2.new(0, 20, 0, 20)
+mainFrame.BackgroundColor3 = Color3.fromRGB(30, 0, 40) -- Dark purple
+mainFrame.BorderSizePixel = 0
+mainFrame.Active = true
+mainFrame.Draggable = false -- we'll use custom dragging
+mainFrame.Parent = screenGui
 
 -- Gradient
 local gradient = Instance.new("UIGradient")
-gradient.Color = ColorSequence.new({
-    ColorSequenceKeypoint.new(0, Color3.fromRGB(48, 29, 84)), -- top
-    ColorSequenceKeypoint.new(1, Color3.fromRGB(82, 54, 122))  -- bottom
-})
+gradient.Color = ColorSequence.new{
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(60, 0, 80)), -- Medium purple
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(30, 0, 40))  -- Dark purple
+}
 gradient.Rotation = 90
-gradient.Parent = bgFrame
+gradient.Parent = mainFrame
 
--- Animate gradient offset up & down
+-- Animate gradient
 task.spawn(function()
-    local direction = 1
+    local dir = 1
     while true do
-        local tween = TweenService:Create(gradient, TweenInfo.new(3, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
-            Offset = Vector2.new(0, direction)
-        })
-        tween:Play()
-        tween.Completed:Wait()
-        direction = -direction
+        for i = 0, 1, 0.002 do
+            gradient.Offset = Vector2.new(0, i * dir)
+            RunService.RenderStepped:Wait()
+        end
+        dir = -dir
     end
 end)
 
 -- Title
-local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, 0, 0, 30)
-title.Position = UDim2.new(0, 0, 0, 0)
-title.BackgroundTransparency = 1
-title.Text = "mocks' backstab script"
-title.TextColor3 = Color3.fromRGB(157, 128, 190) -- light purple
-title.Font = Enum.Font.Code -- closest to matrix style in Roblox
-title.TextSize = 20
-title.Parent = bgFrame
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size = UDim2.new(1, 0, 0, 30)
+titleLabel.BackgroundTransparency = 1
+titleLabel.Font = Enum.Font.Code
+titleLabel.Text = "mocks' backstab script"
+titleLabel.TextColor3 = Color3.fromRGB(200, 150, 255) -- Light purple
+titleLabel.TextScaled = true
+titleLabel.Parent = mainFrame
 
 -- Backstab Button
-local stabButton = Instance.new("TextButton")
-stabButton.Size = UDim2.new(0.9, 0, 0, 35)
-stabButton.Position = UDim2.new(0.05, 0, 0.3, 0)
-stabButton.BackgroundColor3 = Color3.fromRGB(82, 54, 122) -- default OFF color
-stabButton.Text = "Backstab: OFF"
-stabButton.TextColor3 = Color3.fromRGB(157, 128, 190)
-stabButton.Font = Enum.Font.Code
-stabButton.TextSize = 18
-stabButton.Parent = bgFrame
+local toggleButton = Instance.new("TextButton")
+toggleButton.Size = UDim2.new(1, -20, 0, 40)
+toggleButton.Position = UDim2.new(0, 10, 0, 40)
+toggleButton.BackgroundColor3 = Color3.fromRGB(80, 60, 120) -- Off color
+toggleButton.Font = Enum.Font.Code
+toggleButton.TextSize = 18
+toggleButton.Text = "Backstab: OFF"
+toggleButton.TextColor3 = Color3.fromRGB(200, 150, 255)
+toggleButton.Parent = mainFrame
 
--- Slider label
-local sliderLabel = Instance.new("TextLabel")
-sliderLabel.Size = UDim2.new(1, 0, 0, 20)
-sliderLabel.Position = UDim2.new(0, 0, 0.65, 0)
-sliderLabel.BackgroundTransparency = 1
-sliderLabel.Text = "Range: " .. tostring(range)
-sliderLabel.TextColor3 = Color3.fromRGB(157, 128, 190)
-sliderLabel.Font = Enum.Font.Code
-sliderLabel.TextSize = 16
-sliderLabel.Parent = bgFrame
+-- Range Label
+local rangeLabel = Instance.new("TextLabel")
+rangeLabel.Size = UDim2.new(1, -20, 0, 20)
+rangeLabel.Position = UDim2.new(0, 10, 0, 90)
+rangeLabel.BackgroundTransparency = 1
+rangeLabel.Font = Enum.Font.Code
+rangeLabel.TextSize = 16
+rangeLabel.Text = "Range: " .. range
+rangeLabel.TextColor3 = Color3.fromRGB(200, 150, 255)
+rangeLabel.Parent = mainFrame
 
 -- Slider
-local slider = Instance.new("TextButton")
-slider.Size = UDim2.new(0.9, 0, 0, 10)
-slider.Position = UDim2.new(0.05, 0, 0.85, 0)
-slider.BackgroundColor3 = Color3.fromRGB(157, 128, 190)
-slider.Text = ""
-slider.AutoButtonColor = false
-slider.Parent = bgFrame
+local sliderFrame = Instance.new("Frame")
+sliderFrame.Size = UDim2.new(1, -20, 0, 10)
+sliderFrame.Position = UDim2.new(0, 10, 0, 115)
+sliderFrame.BackgroundColor3 = Color3.fromRGB(80, 60, 120)
+sliderFrame.BorderSizePixel = 0
+sliderFrame.Parent = mainFrame
 
-local sliderKnob = Instance.new("Frame")
-sliderKnob.Size = UDim2.new(0, 12, 0, 20)
-sliderKnob.Position = UDim2.new(range / 10, -6, -0.5, 0)
-sliderKnob.BackgroundColor3 = Color3.fromRGB(48, 29, 84)
-sliderKnob.BorderSizePixel = 0
-sliderKnob.Parent = slider
+local sliderButton = Instance.new("Frame")
+sliderButton.Size = UDim2.new(0, 10, 1.5, 0)
+sliderButton.Position = UDim2.new((range-1)/9, -5, -0.25, 0)
+sliderButton.BackgroundColor3 = Color3.fromRGB(200, 150, 255)
+sliderButton.BorderSizePixel = 0
+sliderButton.Parent = sliderFrame
 
--- Slider drag logic
-local UIS = game:GetService("UserInputService")
-local dragging = false
+-- Tag
+local tagLabel = Instance.new("TextLabel")
+tagLabel.Size = UDim2.new(1, 0, 0, 20)
+tagLabel.Position = UDim2.new(0, 0, 1, -20)
+tagLabel.BackgroundTransparency = 1
+tagLabel.Font = Enum.Font.Code
+tagLabel.Text = "@mocksss"
+tagLabel.TextColor3 = Color3.fromRGB(200, 150, 255)
+tagLabel.TextScaled = true
+tagLabel.Parent = mainFrame
 
-slider.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = true
+-- Minimize Button
+local minimizeButton = Instance.new("TextButton")
+minimizeButton.Size = UDim2.new(0, 20, 0, 20)
+minimizeButton.Position = UDim2.new(1, -25, 0, 5)
+minimizeButton.BackgroundColor3 = Color3.fromRGB(200, 150, 255)
+minimizeButton.Text = "-"
+minimizeButton.Font = Enum.Font.Code
+minimizeButton.TextSize = 18
+minimizeButton.TextColor3 = Color3.fromRGB(30, 0, 40)
+minimizeButton.Parent = mainFrame
+
+-- Minimized box
+local minimizedBox = Instance.new("TextButton")
+minimizedBox.Size = UDim2.new(0, 60, 0, 30)
+minimizedBox.Position = mainFrame.Position
+minimizedBox.BackgroundColor3 = Color3.fromRGB(30, 0, 40)
+minimizedBox.Visible = false
+minimizedBox.Text = "Backstab"
+minimizedBox.Font = Enum.Font.Code
+minimizedBox.TextColor3 = Color3.fromRGB(200, 150, 255)
+minimizedBox.Parent = screenGui
+
+-- Dragging system
+local dragging, dragStart, startPos
+local function startDrag(input)
+    dragging = true
+    dragStart = input.Position
+    startPos = mainFrame.Position
+end
+local function updateDrag(input)
+    if dragging then
+        local delta = input.Position - dragStart
+        mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        minimizedBox.Position = mainFrame.Position
+    end
+end
+mainFrame.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        startDrag(input)
     end
 end)
-UIS.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = false
+mainFrame.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                dragging = false
+            end
+        end)
     end
 end)
-UIS.InputChanged:Connect(function(input)
-    if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-        local relX = math.clamp((input.Position.X - slider.AbsolutePosition.X) / slider.AbsoluteSize.X, 0, 1)
-        range = math.floor(relX * 9) + 1
-        sliderKnob.Position = UDim2.new(range / 10, -6, -0.5, 0)
-        sliderLabel.Text = "Range: " .. tostring(range)
-    end
-end)
+UserInputService.InputChanged:Connect(updateDrag)
 
 -- Button toggle
-stabButton.MouseButton1Click:Connect(function()
-    backstabEnabled = not backstabEnabled
-    if backstabEnabled then
-        stabButton.BackgroundColor3 = Color3.fromRGB(157, 128, 190)
-        stabButton.TextColor3 = Color3.fromRGB(48, 29, 84)
-        stabButton.Text = "Backstab: ON"
-    else
-        stabButton.BackgroundColor3 = Color3.fromRGB(82, 54, 122)
-        stabButton.TextColor3 = Color3.fromRGB(157, 128, 190)
-        stabButton.Text = "Backstab: OFF"
+toggleButton.MouseButton1Click:Connect(function()
+    enabled = not enabled
+    toggleButton.Text = "Backstab: " .. (enabled and "ON" or "OFF")
+    toggleButton.BackgroundColor3 = enabled and Color3.fromRGB(200, 150, 255) or Color3.fromRGB(80, 60, 120)
+    toggleButton.TextColor3 = enabled and Color3.fromRGB(30, 0, 40) or Color3.fromRGB(200, 150, 255)
+end)
+
+-- Slider control
+sliderFrame.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        local moveConn
+        moveConn = UserInputService.InputChanged:Connect(function(moveInput)
+            if moveInput.UserInputType == Enum.UserInputType.MouseMovement or moveInput.UserInputType == Enum.UserInputType.Touch then
+                local relX = math.clamp((moveInput.Position.X - sliderFrame.AbsolutePosition.X) / sliderFrame.AbsoluteSize.X, 0, 1)
+                sliderButton.Position = UDim2.new(relX, -5, -0.25, 0)
+                range = math.floor(relX * 9) + 1
+                rangeLabel.Text = "Range: " .. range
+            end
+        end)
+        input.Changed:Connect(function()
+            if input.UserInputState == Enum.UserInputState.End then
+                if moveConn then moveConn:Disconnect() end
+            end
+        end)
     end
 end)
 
--- Backstab logic
-RunService.RenderStepped:Connect(function()
-    if not backstabEnabled or tweening then return end
-    local killer = workspace:FindFirstChild("Killer") -- adjust name
+-- Minimize/maximize
+minimizeButton.MouseButton1Click:Connect(function()
+    mainFrame.Visible = false
+    minimizedBox.Visible = true
+end)
+minimizedBox.MouseButton1Click:Connect(function()
+    mainFrame.Visible = true
+    minimizedBox.Visible = false
+end)
+
+-- Main loop
+RunService.Heartbeat:Connect(function()
+    if not enabled or cooldown then return end
+
+    local char = lp.Character
+    if not (char and char:FindFirstChild("HumanoidRootPart")) then return end
+    local hrp = char.HumanoidRootPart
+
+    local killer = killersFolder:FindFirstChild(killerName)
     if killer and killer:FindFirstChild("HumanoidRootPart") then
-        local dist = (humanoidRootPart.Position - killer.HumanoidRootPart.Position).Magnitude
-        if dist <= range then
-            tweening = true
-            local backPos = killer.HumanoidRootPart.CFrame * CFrame.new(0, 0, 4.2)
-            local tween = TweenService:Create(humanoidRootPart, TweenInfo.new(0.5, Enum.EasingStyle.Sine), {CFrame = backPos})
+        local kHRP = killer.HumanoidRootPart
+        local distance = (hrp.Position - kHRP.Position).Magnitude
+        if distance <= range and killer ~= lastTarget then
+            cooldown = true
+            lastTarget = killer
+
+            local behindPos = kHRP.Position - (kHRP.CFrame.LookVector * 4.2)
+            local tween = TweenService:Create(hrp, TweenInfo.new(tweenSpeed, Enum.EasingStyle.Linear), {
+                CFrame = CFrame.new(behindPos, behindPos + kHRP.CFrame.LookVector)
+            })
             tween:Play()
-            tween.Completed:Wait()
-            tweening = false
+
+            tween.Completed:Connect(function()
+                daggerRemote:FireServer("UseActorAbility", "Dagger")
+            end)
+
+            task.delay(2, function()
+                lastTarget = nil
+                cooldown = false
+            end)
         end
     end
 end)
