@@ -1,185 +1,154 @@
+-- Place this LocalScript inside StarterPlayer > StarterPlayerScripts
+-- You must have TweenService and a UI gradient in use
+
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local TweenService = game:GetService("TweenService")
 local RunService = game:GetService("RunService")
 
-local lp = Players.LocalPlayer
+local player = Players.LocalPlayer
+local char = player.Character or player.CharacterAdded:Wait()
+local humanoidRootPart = char:WaitForChild("HumanoidRootPart")
 
--- GUI Setup
+local range = 7.2 -- default range, can be changed with slider
+local backstabEnabled = false
+local tweening = false
+
+-- // UI Setup
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "BackstabToggleGui"
+screenGui.Name = "BackstabUI"
+screenGui.Parent = player:WaitForChild("PlayerGui")
+screenGui.IgnoreGuiInset = true
 screenGui.ResetOnSpawn = false
-screenGui.Parent = lp:WaitForChild("PlayerGui")
 
--- Toggle Button
-local toggleButton = Instance.new("TextButton")
-toggleButton.Size = UDim2.new(0, 150, 0, 40)
-toggleButton.Position = UDim2.new(0, 10, 0, 10)
-toggleButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-toggleButton.Font = Enum.Font.SourceSansBold
-toggleButton.TextSize = 20
-toggleButton.Text = "Backstab: OFF"
-toggleButton.Parent = screenGui
+-- Background frame
+local bgFrame = Instance.new("Frame")
+bgFrame.Size = UDim2.new(0, 250, 0, 140)
+bgFrame.Position = UDim2.new(0.05, 0, 0.2, 0)
+bgFrame.BackgroundColor3 = Color3.fromRGB(48, 29, 84) -- dark purple
+bgFrame.BorderSizePixel = 0
+bgFrame.Parent = screenGui
 
--- Range Label
-local rangeLabel = Instance.new("TextLabel")
-rangeLabel.Size = UDim2.new(0, 150, 0, 20)
-rangeLabel.Position = UDim2.new(0, 10, 0, 55)
-rangeLabel.BackgroundTransparency = 1
-rangeLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-rangeLabel.Font = Enum.Font.SourceSans
-rangeLabel.TextSize = 16
-rangeLabel.Text = "Range:"
-rangeLabel.Parent = screenGui
+-- Gradient
+local gradient = Instance.new("UIGradient")
+gradient.Color = ColorSequence.new({
+    ColorSequenceKeypoint.new(0, Color3.fromRGB(48, 29, 84)), -- top
+    ColorSequenceKeypoint.new(1, Color3.fromRGB(82, 54, 122))  -- bottom
+})
+gradient.Rotation = 90
+gradient.Parent = bgFrame
 
--- TextBox for Range Input
-local rangeBox = Instance.new("TextBox")
-rangeBox.Size = UDim2.new(0, 150, 0, 25)
-rangeBox.Position = UDim2.new(0, 10, 0, 75)
-rangeBox.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-rangeBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-rangeBox.Font = Enum.Font.SourceSans
-rangeBox.TextSize = 16
-rangeBox.PlaceholderText = "Enter range (1 - 10)"
-rangeBox.Text = "4"
-rangeBox.ClearTextOnFocus = false
-rangeBox.Parent = screenGui
-
--- Vars
-local enabled = false
-local cooldown = false
-local lastTarget = nil
-local range = 4
-local daggerRemote = ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Network"):WaitForChild("RemoteEvent")
-local killerNames = { "Jason", "c00lkidd", "JohnDoe", "1x1x1x1", "Noli" }
-local killersFolder = workspace:WaitForChild("Players"):WaitForChild("Killers")
-
--- GUI toggle
-toggleButton.MouseButton1Click:Connect(function()
-    enabled = not enabled
-    toggleButton.Text = "Backstab: " .. (enabled and "ON" or "OFF")
-    toggleButton.BackgroundColor3 = enabled and Color3.fromRGB(50, 150, 50) or Color3.fromRGB(30, 30, 30)
-end)
-
--- TextBox Range Handling
-rangeBox.FocusLost:Connect(function()
-    local input = tonumber(rangeBox.Text)
-    if input and input >= 1 and input <= 10 then
-        range = input
-    else
-        rangeBox.Text = tostring(range)
+-- Animate gradient offset up & down
+task.spawn(function()
+    local direction = 1
+    while true do
+        local tween = TweenService:Create(gradient, TweenInfo.new(3, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut), {
+            Offset = Vector2.new(0, direction)
+        })
+        tween:Play()
+        tween.Completed:Wait()
+        direction = -direction
     end
 end)
 
--- Mode Toggle
-local mode = "Behind"
-local modeButton = Instance.new("TextButton")
-modeButton.Size = UDim2.new(0, 150, 0, 25)
-modeButton.Position = UDim2.new(0, 10, 0, 105)
-modeButton.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
-modeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-modeButton.Font = Enum.Font.SourceSans
-modeButton.TextSize = 16
-modeButton.Text = "Mode: Behind"
-modeButton.Parent = screenGui
+-- Title
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, 0, 0, 30)
+title.Position = UDim2.new(0, 0, 0, 0)
+title.BackgroundTransparency = 1
+title.Text = "mocks' backstab script"
+title.TextColor3 = Color3.fromRGB(157, 128, 190) -- light purple
+title.Font = Enum.Font.Code -- closest to matrix style in Roblox
+title.TextSize = 20
+title.Parent = bgFrame
 
-modeButton.MouseButton1Click:Connect(function()
-    if mode == "Behind" then
-        mode = "Around"
-    else
-        mode = "Behind"
+-- Backstab Button
+local stabButton = Instance.new("TextButton")
+stabButton.Size = UDim2.new(0.9, 0, 0, 35)
+stabButton.Position = UDim2.new(0.05, 0, 0.3, 0)
+stabButton.BackgroundColor3 = Color3.fromRGB(82, 54, 122) -- default OFF color
+stabButton.Text = "Backstab: OFF"
+stabButton.TextColor3 = Color3.fromRGB(157, 128, 190)
+stabButton.Font = Enum.Font.Code
+stabButton.TextSize = 18
+stabButton.Parent = bgFrame
+
+-- Slider label
+local sliderLabel = Instance.new("TextLabel")
+sliderLabel.Size = UDim2.new(1, 0, 0, 20)
+sliderLabel.Position = UDim2.new(0, 0, 0.65, 0)
+sliderLabel.BackgroundTransparency = 1
+sliderLabel.Text = "Range: " .. tostring(range)
+sliderLabel.TextColor3 = Color3.fromRGB(157, 128, 190)
+sliderLabel.Font = Enum.Font.Code
+sliderLabel.TextSize = 16
+sliderLabel.Parent = bgFrame
+
+-- Slider
+local slider = Instance.new("TextButton")
+slider.Size = UDim2.new(0.9, 0, 0, 10)
+slider.Position = UDim2.new(0.05, 0, 0.85, 0)
+slider.BackgroundColor3 = Color3.fromRGB(157, 128, 190)
+slider.Text = ""
+slider.AutoButtonColor = false
+slider.Parent = bgFrame
+
+local sliderKnob = Instance.new("Frame")
+sliderKnob.Size = UDim2.new(0, 12, 0, 20)
+sliderKnob.Position = UDim2.new(range / 10, -6, -0.5, 0)
+sliderKnob.BackgroundColor3 = Color3.fromRGB(48, 29, 84)
+sliderKnob.BorderSizePixel = 0
+sliderKnob.Parent = slider
+
+-- Slider drag logic
+local UIS = game:GetService("UserInputService")
+local dragging = false
+
+slider.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = true
     end
-    modeButton.Text = "Mode: " .. mode
+end)
+UIS.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 then
+        dragging = false
+    end
+end)
+UIS.InputChanged:Connect(function(input)
+    if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+        local relX = math.clamp((input.Position.X - slider.AbsolutePosition.X) / slider.AbsoluteSize.X, 0, 1)
+        range = math.floor(relX * 9) + 1
+        sliderKnob.Position = UDim2.new(range / 10, -6, -0.5, 0)
+        sliderLabel.Text = "Range: " .. tostring(range)
+    end
 end)
 
--- Helper function
-local function isBehindTarget(hrp, targetHRP)
-    local distance = (hrp.Position - targetHRP.Position).Magnitude
-    if distance > range then return false end
-    if mode == "Around" then
-        return true
+-- Button toggle
+stabButton.MouseButton1Click:Connect(function()
+    backstabEnabled = not backstabEnabled
+    if backstabEnabled then
+        stabButton.BackgroundColor3 = Color3.fromRGB(157, 128, 190)
+        stabButton.TextColor3 = Color3.fromRGB(48, 29, 84)
+        stabButton.Text = "Backstab: ON"
     else
-        local direction = -targetHRP.CFrame.LookVector
-        local toPlayer = (hrp.Position - targetHRP.Position)
-        return toPlayer:Dot(direction) > 0.5
+        stabButton.BackgroundColor3 = Color3.fromRGB(82, 54, 122)
+        stabButton.TextColor3 = Color3.fromRGB(157, 128, 190)
+        stabButton.Text = "Backstab: OFF"
     end
-end
+end)
 
--- Manual smooth movement function (lerp instead of TweenService spam)
-local function smoothMove(part, targetCFrame, alpha)
-    part.CFrame = part.CFrame:Lerp(targetCFrame, alpha)
-end
-
--- Main loop
-RunService.Heartbeat:Connect(function()
-    if not enabled or cooldown then return end
-
-    local char = lp.Character
-    if not (char and char:FindFirstChild("HumanoidRootPart")) then return end
-    local hrp = char.HumanoidRootPart
-
-    for _, name in ipairs(killerNames) do
-        local killer = killersFolder:FindFirstChild(name)
-        if killer and killer:FindFirstChild("HumanoidRootPart") then
-            local kHRP = killer.HumanoidRootPart
-
-            if isBehindTarget(hrp, kHRP) and killer ~= lastTarget then
-                cooldown = true
-                lastTarget = killer
-
-                -- Continuous smooth follow without tween spam
-                local start = tick()
-                local didDagger = false
-                local connection
-                connection = RunService.Heartbeat:Connect(function()
-                    if not (char and char.Parent and kHRP and kHRP.Parent) then
-                        if connection then connection:Disconnect() end
-                        return
-                    end
-
-                    local elapsed = tick() - start
-                    if elapsed >= 0.5 then
-                        if connection then connection:Disconnect() end
-                        return
-                    end
-
-                    -- Calculate desired position behind killer
-                    local behindPos = kHRP.Position - (kHRP.CFrame.LookVector * 0.3)
-                    local targetCFrame = CFrame.new(behindPos, behindPos + kHRP.CFrame.LookVector)
-
-                    -- Smoothly interpolate toward target (alpha controls smoothness)
-                    smoothMove(hrp, targetCFrame, 0.4)
-
-                    -- First time only — face target & stab
-                    if not didDagger then
-                        didDagger = true
-                        local faceStart = tick()
-                        local faceConn
-                        faceConn = RunService.Heartbeat:Connect(function()
-                            if tick() - faceStart >= 0.7 or not kHRP or not kHRP.Parent then
-                                if faceConn then faceConn:Disconnect() end
-                                return
-                            end
-                            local lookCFrame = CFrame.new(hrp.Position, hrp.Position + kHRP.CFrame.LookVector)
-                            smoothMove(hrp, lookCFrame, 0.4)
-                        end)
-                        daggerRemote:FireServer("UseActorAbility", "Dagger")
-                    end
-                end)
-
-                -- Reset cooldown after leaving range
-                task.delay(2, function()
-                    RunService.Heartbeat:Wait()
-                    while isBehindTarget(hrp, kHRP) do
-                        RunService.Heartbeat:Wait()
-                    end
-                    lastTarget = nil
-                    cooldown = false
-                end)
-
-                break
-            end
+-- Backstab logic
+RunService.RenderStepped:Connect(function()
+    if not backstabEnabled or tweening then return end
+    local killer = workspace:FindFirstChild("Killer") -- adjust name
+    if killer and killer:FindFirstChild("HumanoidRootPart") then
+        local dist = (humanoidRootPart.Position - killer.HumanoidRootPart.Position).Magnitude
+        if dist <= range then
+            tweening = true
+            local backPos = killer.HumanoidRootPart.CFrame * CFrame.new(0, 0, 4.2)
+            local tween = TweenService:Create(humanoidRootPart, TweenInfo.new(0.5, Enum.EasingStyle.Sine), {CFrame = backPos})
+            tween:Play()
+            tween.Completed:Wait()
+            tweening = false
         end
     end
 end)
-
