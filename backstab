@@ -1,3 +1,4 @@
+
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
@@ -6,139 +7,199 @@ local UserInputService = game:GetService("UserInputService")
 
 local lp = Players.LocalPlayer
 
--- Menu Setup
+-- Create ScreenGui
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "BackstabMenu"
+screenGui.Name = "BackstabMenuGui"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = lp:WaitForChild("PlayerGui")
 
--- Main Frame
+-- Main Frame (Menu)
 local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 250, 0, 200) -- bigger menu
+mainFrame.Size = UDim2.new(0, 250, 0, 200)
 mainFrame.Position = UDim2.new(0.5, -125, 0.5, -100)
 mainFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 20)
 mainFrame.BorderSizePixel = 0
 mainFrame.Visible = false
 mainFrame.Parent = screenGui
 
--- Outline
+-- UIStroke for Purple Outline
 local outline = Instance.new("UIStroke")
-outline.Color = Color3.fromRGB(128, 0, 255)
 outline.Thickness = 2
+outline.Color = Color3.fromRGB(128, 0, 255)
 outline.Parent = mainFrame
 
--- Toggle Button
-local toggleButton = Instance.new("TextButton")
-toggleButton.Size = UDim2.new(0, 200, 0, 50) -- bigger
-toggleButton.Position = UDim2.new(0, 25, 0, 20)
-toggleButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30) -- OFF color
-toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-toggleButton.Font = Enum.Font.Code
-toggleButton.TextSize = 22
-toggleButton.Text = "Backstab: OFF"
-toggleButton.Parent = mainFrame
+-- UIListLayout for spacing
+local layout = Instance.new("UIListLayout")
+layout.Padding = UDim.new(0, 8)
+layout.HorizontalAlignment = Enum.HorizontalAlignment.Center
+layout.VerticalAlignment = Enum.VerticalAlignment.Center
+layout.Parent = mainFrame
 
--- Range Label
-local rangeLabel = Instance.new("TextLabel")
-rangeLabel.Size = UDim2.new(0, 200, 0, 25)
-rangeLabel.Position = UDim2.new(0, 25, 0, 80)
-rangeLabel.BackgroundTransparency = 1
-rangeLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-rangeLabel.Font = Enum.Font.Code
-rangeLabel.TextSize = 18
-rangeLabel.Text = "Range:"
-rangeLabel.Parent = mainFrame
+-- UI Padding
+local padding = Instance.new("UIPadding")
+padding.PaddingTop = UDim.new(0, 10)
+padding.PaddingBottom = UDim.new(0, 10)
+padding.Parent = mainFrame
 
--- Range Input
-local rangeBox = Instance.new("TextBox")
-rangeBox.Size = UDim2.new(0, 200, 0, 30)
-rangeBox.Position = UDim2.new(0, 25, 0, 110)
-rangeBox.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-rangeBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-rangeBox.Font = Enum.Font.Code
-rangeBox.TextSize = 18
-rangeBox.PlaceholderText = "Enter range (1 - 10)"
-rangeBox.Text = "4"
-rangeBox.ClearTextOnFocus = false
-rangeBox.Parent = mainFrame
-
--- Vars
-local backstabEnabled = false
-local range = 4
-local cooldown = false
-local lastTarget = nil
-local daggerRemote = ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Network"):WaitForChild("RemoteEvent")
-local killersFolder = workspace:WaitForChild("Players"):WaitForChild("Killers")
-local killerNames = { "Jason", "c00lkidd", "JohnDoe", "1x1x1x1", "Noli" }
-
--- Toggle logic
-toggleButton.MouseButton1Click:Connect(function()
-	backstabEnabled = not backstabEnabled
-	toggleButton.Text = "Backstab: " .. (backstabEnabled and "ON" or "OFF")
-	toggleButton.BackgroundColor3 = backstabEnabled and Color3.fromRGB(128, 0, 255) or Color3.fromRGB(30, 30, 30)
-end)
-
--- Range input logic
-rangeBox.FocusLost:Connect(function()
-	local input = tonumber(rangeBox.Text)
-	if input and input >= 1 and input <= 10 then
-		range = input
-	else
-		rangeBox.Text = tostring(range)
-	end
-end)
-
--- Open/Close menu animation
-local menuOpen = false
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-	if gameProcessed then return end
-	if input.KeyCode == Enum.KeyCode.RightShift then
-		menuOpen = not menuOpen
-		if menuOpen then
-			mainFrame.Visible = true
-			mainFrame.Position = UDim2.new(0.5, -125, 1, 0)
-			TweenService:Create(mainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = UDim2.new(0.5, -125, 0.5, -100)}):Play()
-		else
-			local closeTween = TweenService:Create(mainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {Position = UDim2.new(0.5, -125, 1, 0)})
-			closeTween:Play()
-			closeTween.Completed:Connect(function()
-				mainFrame.Visible = false
-			end)
-		end
-	end
-end)
-
--- Check if player is behind
-local function isBehindTarget(hrp, targetHRP)
-	local distance = (hrp.Position - targetHRP.Position).Magnitude
-	if distance > range then return false end
-	local direction = -targetHRP.CFrame.LookVector
-	local toPlayer = (hrp.Position - targetHRP.Position)
-	return toPlayer:Dot(direction) > 0.5
+-- Function to create styled buttons
+local function createButton(text)
+    local button = Instance.new("TextButton")
+    button.Size = UDim2.new(0, 200, 0, 40)
+    button.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    button.Font = Enum.Font.Code
+    button.TextSize = 20
+    button.Text = text
+    button.Parent = mainFrame
+    return button
 end
 
--- Main loop
+-- Function to create label
+local function createLabel(text)
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(0, 200, 0, 25)
+    label.BackgroundTransparency = 1
+    label.TextColor3 = Color3.fromRGB(255, 255, 255)
+    label.Font = Enum.Font.Code
+    label.TextSize = 18
+    label.Text = text
+    label.Parent = mainFrame
+    return label
+end
+
+-- Function to create text box
+local function createTextBox(placeholder)
+    local box = Instance.new("TextBox")
+    box.Size = UDim2.new(0, 200, 0, 30)
+    box.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+    box.TextColor3 = Color3.fromRGB(255, 255, 255)
+    box.Font = Enum.Font.Code
+    box.TextSize = 18
+    box.PlaceholderText = placeholder
+    box.ClearTextOnFocus = false
+    box.Parent = mainFrame
+    return box
+end
+
+-- UI Elements
+local toggleButton = createButton("Backstab: OFF")
+local rangeLabel = createLabel("Range:")
+local rangeBox = createTextBox("Enter range (1 - 10)")
+rangeBox.Text = "4"
+local modeButton = createButton("Mode: Behind")
+
+-- Vars
+local enabled = false
+local cooldown = false
+local lastTarget = nil
+local range = 4
+local mode = "Behind"
+
+local daggerRemote = ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Network"):WaitForChild("RemoteEvent")
+local killerNames = { "Jason", "c00lkidd", "JohnDoe", "1x1x1x1", "Noli" }
+local killersFolder = workspace:WaitForChild("Players"):WaitForChild("Killers")
+
+-- Toggle button function
+toggleButton.MouseButton1Click:Connect(function()
+    enabled = not enabled
+    toggleButton.Text = "Backstab: " .. (enabled and "ON" or "OFF")
+    toggleButton.BackgroundColor3 = enabled and Color3.fromRGB(128, 0, 255) or Color3.fromRGB(30, 30, 30)
+end)
+
+-- Range box input
+rangeBox.FocusLost:Connect(function()
+    local input = tonumber(rangeBox.Text)
+    if input and input >= 1 and input <= 10 then
+        range = input
+    else
+        rangeBox.Text = tostring(range)
+    end
+end)
+
+-- Mode button
+modeButton.MouseButton1Click:Connect(function()
+    if mode == "Behind" then
+        mode = "Around"
+    else
+        mode = "Behind"
+    end
+    modeButton.Text = "Mode: " .. mode
+end)
+
+-- Menu toggle with animation
+local menuOpen = false
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if not gameProcessed and input.KeyCode == Enum.KeyCode.RightShift then
+        menuOpen = not menuOpen
+        if menuOpen then
+            mainFrame.Visible = true
+            mainFrame.Position = UDim2.new(0.5, -125, 1, 0)
+            TweenService:Create(mainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+                Position = UDim2.new(0.5, -125, 0.5, -100)
+            }):Play()
+        else
+            TweenService:Create(mainFrame, TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.In), {
+                Position = UDim2.new(0.5, -125, 1, 0)
+            }):Play()
+            task.delay(0.3, function()
+                mainFrame.Visible = false
+            end)
+        end
+    end
+end)
+
+-- Main loop (unchanged except for formatting)
+local function isBehindTarget(hrp, targetHRP)
+    local distance = (hrp.Position - targetHRP.Position).Magnitude
+    if distance > range then return false end
+    if mode == "Around" then return true
+    else
+        local direction = -targetHRP.CFrame.LookVector
+        local toPlayer = (hrp.Position - targetHRP.Position)
+        return toPlayer:Dot(direction) > 0.5
+    end
+end
+
 RunService.Heartbeat:Connect(function()
-	if not backstabEnabled or cooldown then return end
-	local char = lp.Character
-	if not (char and char:FindFirstChild("HumanoidRootPart")) then return end
-	local hrp = char.HumanoidRootPart
-	for _, name in ipairs(killerNames) do
-		local killer = killersFolder:FindFirstChild(name)
-		if killer and killer:FindFirstChild("HumanoidRootPart") then
-			local kHRP = killer.HumanoidRootPart
-			if isBehindTarget(hrp, kHRP) and killer ~= lastTarget then
-				cooldown = true
-				lastTarget = killer
-				local behindPos = kHRP.Position - (kHRP.CFrame.LookVector * 0.3)
-				hrp.CFrame = CFrame.new(behindPos, behindPos + kHRP.CFrame.LookVector)
-				daggerRemote:FireServer("UseActorAbility", "Dagger")
-				task.delay(2, function()
-					lastTarget = nil
-					cooldown = false
-				end)
-				break
-			end
-		end
-	end
+    if not enabled or cooldown then return end
+    local char = lp.Character
+    if not (char and char:FindFirstChild("HumanoidRootPart")) then return end
+    local hrp = char.HumanoidRootPart
+    for _, name in ipairs(killerNames) do
+        local killer = killersFolder:FindFirstChild(name)
+        if killer and killer:FindFirstChild("HumanoidRootPart") then
+            local kHRP = killer.HumanoidRootPart
+            if isBehindTarget(hrp, kHRP) and killer ~= lastTarget then
+                cooldown = true
+                lastTarget = killer
+                local start = tick()
+                local didDagger = false
+                local connection
+                connection = RunService.Heartbeat:Connect(function()
+                    if not (char and char.Parent and kHRP and kHRP.Parent) then
+                        if connection then connection:Disconnect() end
+                        return
+                    end
+                    local elapsed = tick() - start
+                    if elapsed >= 0.5 then
+                        if connection then connection:Disconnect() end
+                        return
+                    end
+                    local behindPos = kHRP.Position - (kHRP.CFrame.LookVector * 0.3)
+                    hrp.CFrame = CFrame.new(behindPos, behindPos + kHRP.CFrame.LookVector)
+                    if not didDagger then
+                        didDagger = true
+                        daggerRemote:FireServer("UseActorAbility", "Dagger")
+                    end
+                end)
+                task.delay(2, function()
+                    RunService.Heartbeat:Wait()
+                    while isBehindTarget(hrp, kHRP) do RunService.Heartbeat:Wait() end
+                    lastTarget = nil
+                    cooldown = false
+                end)
+                break
+            end
+        end
+    end
 end)
