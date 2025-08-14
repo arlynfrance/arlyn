@@ -1,368 +1,199 @@
---// Services
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
-local UserInputService = game:GetService("UserInputService")
-
 local lp = Players.LocalPlayer
 
---// Color palette (match your image)
-local COLOR_BG_BASE   = Color3.fromRGB(34, 17, 51)   -- left (dark purple)
-local COLOR_BG_GRAD   = Color3.fromRGB(89, 47, 120)  -- middle (gradient)
-local COLOR_TEXT      = Color3.fromRGB(204, 170, 255) -- right (text)
-
-local COLOR_BUTTON_OFF_BG = Color3.fromRGB(70, 35, 100)     -- button OFF background
-local COLOR_BUTTON_ON_BG  = COLOR_TEXT                      -- button ON background
-local COLOR_BUTTON_OFF_TX = COLOR_TEXT                      -- button OFF text
-local COLOR_BUTTON_ON_TX  = COLOR_BG_BASE                   -- button ON text
-
-local COLOR_SLIDER_TRACK  = Color3.fromRGB(73, 36, 104)
-local COLOR_SLIDER_KNOB   = COLOR_TEXT
-
---// Settings / Vars
-local enabled       = false
-local range         = 4                -- default range; slider controls 1–10
-local tweenSpeed    = 1.35             -- studs/sec (a little faster per your request)
-local followDist    = 4.2              -- always stay this many studs behind (relative to LookVector)
-local closeThresh   = 0.75             -- when within this many studs of the behind point, fire dagger
-
+-- Variables
+local enabled = false
+local cooldown = false
+local lastTarget = nil
+local range = 4
+local followConnection
+local daggerRemote = ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Network"):WaitForChild("RemoteEvent")
+local killerNames = { "Jason", "c00lkidd", "JohnDoe", "1x1x1x1", "Noli" }
 local killersFolder = workspace:WaitForChild("Players"):WaitForChild("Killers")
-local killerNames   = { "Jason", "c00lkidd", "JohnDoe", "1x1x1x1", "Noli" }
-local daggerRemote  = ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Network"):WaitForChild("RemoteEvent")
 
-local currentTween  = nil
-local followConn    = nil
-local lastTarget    = nil
-
---// GUI -----------------------------------------------------------------------
+-- UI Setup
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "BackstabUI"
+screenGui.Name = "BackstabToggleGui"
 screenGui.ResetOnSpawn = false
-screenGui.IgnoreGuiInset = true
 screenGui.Parent = lp:WaitForChild("PlayerGui")
 
--- Main frame
-local mainFrame = Instance.new("Frame")
-mainFrame.Name = "Main"
-mainFrame.Size = UDim2.new(0, 200, 0, 170)
-mainFrame.Position = UDim2.new(0, 20, 0, 20)
-mainFrame.BackgroundColor3 = COLOR_BG_BASE
-mainFrame.BorderSizePixel = 0
-mainFrame.Active = true -- required for custom dragging
-mainFrame.Parent = screenGui
+-- Background Frame
+local bgFrame = Instance.new("Frame")
+bgFrame.Size = UDim2.new(0, 200, 0, 160)
+bgFrame.Position = UDim2.new(0, 10, 0, 10)
+bgFrame.BackgroundColor3 = Color3.fromRGB(40, 0, 40)
+bgFrame.BorderSizePixel = 0
+bgFrame.Active = true
+bgFrame.Draggable = true
+bgFrame.Parent = screenGui
 
--- Gradient (animated, subtle up–down)
-local grad = Instance.new("UIGradient")
-grad.Color = ColorSequence.new({
-    ColorSequenceKeypoint.new(0, COLOR_BG_GRAD),
-    ColorSequenceKeypoint.new(1, COLOR_BG_BASE)
-})
-grad.Rotation = 90 -- vertical
-grad.Offset = Vector2.new(0, -0.25)
-grad.Parent = mainFrame
-
-task.spawn(function()
-    local dir = 1
-    while mainFrame and mainFrame.Parent do
-        local tween = TweenService:Create(
-            grad,
-            TweenInfo.new(3.2, Enum.EasingStyle.Sine, Enum.EasingDirection.InOut),
-            { Offset = Vector2.new(0, 0.25 * dir) }
-        )
-        tween:Play()
-        tween.Completed:Wait()
-        dir = -dir
-    end
-end)
+-- Gradient
+local gradient = Instance.new("UIGradient")
+gradient.Color = ColorSequence.new{
+	ColorSequenceKeypoint.new(0, Color3.fromRGB(40, 0, 40)),
+	ColorSequenceKeypoint.new(1, Color3.fromRGB(80, 0, 80))
+}
+gradient.Rotation = 90
+gradient.Parent = bgFrame
 
 -- Title
 local title = Instance.new("TextLabel")
-title.Name = "Title"
-title.Size = UDim2.new(1, -30, 0, 26)
-title.Position = UDim2.new(0, 8, 0, 6)
+title.Size = UDim2.new(1, -30, 0, 25)
+title.Position = UDim2.new(0, 5, 0, 5)
 title.BackgroundTransparency = 1
 title.Text = "mocks' backstab script"
-title.TextColor3 = COLOR_TEXT
+title.TextColor3 = Color3.fromRGB(180, 140, 255)
 title.Font = Enum.Font.Code
-title.TextSize = 18
+title.TextSize = 16
 title.TextXAlignment = Enum.TextXAlignment.Left
-title.Parent = mainFrame
+title.Parent = bgFrame
 
--- Minimize (top-right)
-local minimizeBtn = Instance.new("TextButton")
-minimizeBtn.Name = "Minimize"
-minimizeBtn.Size = UDim2.new(0, 20, 0, 20)
-minimizeBtn.Position = UDim2.new(1, -24, 0, 6)
-minimizeBtn.BackgroundColor3 = COLOR_BUTTON_OFF_BG
-minimizeBtn.Text = "-"
-minimizeBtn.TextColor3 = COLOR_TEXT
-minimizeBtn.Font = Enum.Font.Code
-minimizeBtn.TextSize = 16
-minimizeBtn.AutoButtonColor = false
-minimizeBtn.Parent = mainFrame
+-- Minimize Button
+local minimizeButton = Instance.new("TextButton")
+minimizeButton.Size = UDim2.new(0, 20, 0, 20)
+minimizeButton.Position = UDim2.new(1, -25, 0, 5)
+minimizeButton.BackgroundColor3 = Color3.fromRGB(60, 0, 60)
+minimizeButton.Text = "-"
+minimizeButton.TextColor3 = Color3.fromRGB(200, 160, 255)
+minimizeButton.Font = Enum.Font.Code
+minimizeButton.TextSize = 18
+minimizeButton.Parent = bgFrame
 
--- Toggle
-local toggleBtn = Instance.new("TextButton")
-toggleBtn.Name = "Toggle"
-toggleBtn.Size = UDim2.new(1, -20, 0, 36)
-toggleBtn.Position = UDim2.new(0, 10, 0, 40)
-toggleBtn.BackgroundColor3 = COLOR_BUTTON_OFF_BG
-toggleBtn.TextColor3 = COLOR_BUTTON_OFF_TX
-toggleBtn.Font = Enum.Font.Code
-toggleBtn.TextSize = 18
-toggleBtn.Text = "Backstab: OFF"
-toggleBtn.AutoButtonColor = false
-toggleBtn.Parent = mainFrame
+-- Toggle Button
+local toggleButton = Instance.new("TextButton")
+toggleButton.Size = UDim2.new(1, -20, 0, 30)
+toggleButton.Position = UDim2.new(0, 10, 0, 35)
+toggleButton.BackgroundColor3 = Color3.fromRGB(60, 0, 60)
+toggleButton.TextColor3 = Color3.fromRGB(200, 160, 255)
+toggleButton.Font = Enum.Font.Code
+toggleButton.TextSize = 18
+toggleButton.Text = "Backstab: OFF"
+toggleButton.Parent = bgFrame
 
--- Range label
+-- Range Label
 local rangeLabel = Instance.new("TextLabel")
-rangeLabel.Name = "RangeLabel"
 rangeLabel.Size = UDim2.new(1, -20, 0, 20)
-rangeLabel.Position = UDim2.new(0, 10, 0, 80)
+rangeLabel.Position = UDim2.new(0, 10, 0, 70)
 rangeLabel.BackgroundTransparency = 1
-rangeLabel.Text = ("Range: %d"):format(range)
-rangeLabel.TextColor3 = COLOR_TEXT
+rangeLabel.TextColor3 = Color3.fromRGB(200, 160, 255)
 rangeLabel.Font = Enum.Font.Code
 rangeLabel.TextSize = 16
-rangeLabel.Parent = mainFrame
+rangeLabel.Text = "Range: " .. range
+rangeLabel.Parent = bgFrame
 
--- Slider (custom)
-local sliderTrack = Instance.new("Frame")
-sliderTrack.Name = "SliderTrack"
-sliderTrack.Size = UDim2.new(1, -20, 0, 10)
-sliderTrack.Position = UDim2.new(0, 10, 0, 105)
-sliderTrack.BackgroundColor3 = COLOR_SLIDER_TRACK
-sliderTrack.BorderSizePixel = 0
-sliderTrack.Parent = mainFrame
+-- Range Slider
+local sliderBack = Instance.new("Frame")
+sliderBack.Size = UDim2.new(1, -20, 0, 10)
+sliderBack.Position = UDim2.new(0, 10, 0, 95)
+sliderBack.BackgroundColor3 = Color3.fromRGB(80, 0, 80)
+sliderBack.BorderSizePixel = 0
+sliderBack.Parent = bgFrame
 
-local sliderKnob = Instance.new("Frame")
-sliderKnob.Name = "SliderKnob"
-sliderKnob.Size = UDim2.new(0, 14, 0, 22)
-sliderKnob.Position = UDim2.new((range - 1)/9, -7, 0, -6) -- center knob on track
-sliderKnob.BackgroundColor3 = COLOR_SLIDER_KNOB
-sliderKnob.BorderSizePixel = 0
-sliderKnob.Parent = sliderTrack
+local sliderFill = Instance.new("Frame")
+sliderFill.Size = UDim2.new(range/10, 0, 1, 0)
+sliderFill.BackgroundColor3 = Color3.fromRGB(200, 160, 255)
+sliderFill.BorderSizePixel = 0
+sliderFill.Parent = sliderBack
+
+local draggingSlider = false
+sliderBack.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		draggingSlider = true
+	end
+end)
+sliderBack.InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+		draggingSlider = false
+	end
+end)
+
+RunService.Heartbeat:Connect(function()
+	if draggingSlider then
+		local mouse = lp:GetMouse()
+		local percent = math.clamp((mouse.X - sliderBack.AbsolutePosition.X) / sliderBack.AbsoluteSize.X, 0, 1)
+		range = math.floor(percent * 9) + 1
+		sliderFill.Size = UDim2.new(percent, 0, 1, 0)
+		rangeLabel.Text = "Range: " .. range
+	end
+end)
 
 -- Tag
 local tag = Instance.new("TextLabel")
-tag.Name = "Tag"
-tag.Size = UDim2.new(1, 0, 0, 18)
-tag.Position = UDim2.new(0, 0, 1, -22)
+tag.Size = UDim2.new(1, -10, 0, 20)
+tag.Position = UDim2.new(0, 5, 1, -25)
 tag.BackgroundTransparency = 1
 tag.Text = "@mocksss"
-tag.TextColor3 = COLOR_TEXT
+tag.TextColor3 = Color3.fromRGB(180, 140, 255)
 tag.Font = Enum.Font.Code
 tag.TextSize = 14
-tag.Parent = mainFrame
+tag.TextXAlignment = Enum.TextXAlignment.Left
+tag.Parent = bgFrame
 
--- Minimized dock button (appears when minimized)
-local dockBtn = Instance.new("TextButton")
-dockBtn.Name = "Dock"
-dockBtn.Size = UDim2.new(0, 100, 0, 32)
-dockBtn.Position = mainFrame.Position
-dockBtn.BackgroundColor3 = COLOR_BG_BASE
-dockBtn.BorderSizePixel = 0
-dockBtn.Visible = false
-dockBtn.Text = "Backstab UI"
-dockBtn.TextColor3 = COLOR_TEXT
-dockBtn.Font = Enum.Font.Code
-dockBtn.TextSize = 16
-dockBtn.AutoButtonColor = false
-dockBtn.Parent = screenGui
-
-local dockGrad = Instance.new("UIGradient")
-dockGrad.Color = grad.Color
-dockGrad.Rotation = 90
-dockGrad.Parent = dockBtn
-
--- Minimize behavior
+-- Minimize Logic
 local minimized = false
-local function setMinimized(state)
-	minimized = state
-	if minimized then
-		dockBtn.Position = mainFrame.Position -- keep same spot
-		mainFrame.Visible = false
-		dockBtn.Visible = true
-	else
-		mainFrame.Position = dockBtn.Position
-		dockBtn.Visible = false
-		mainFrame.Visible = true
-	end
-end
-minimizeBtn.MouseButton1Click:Connect(function()
-	setMinimized(true)
-end)
-dockBtn.MouseButton1Click:Connect(function()
-	setMinimized(false)
-end)
-
--- Toggle behavior (updates colors)
-local function applyToggleVisuals()
-	if enabled then
-		toggleBtn.BackgroundColor3 = COLOR_BUTTON_ON_BG
-		toggleBtn.TextColor3       = COLOR_BUTTON_ON_TX
-		toggleBtn.Text             = "Backstab: ON"
-	else
-		toggleBtn.BackgroundColor3 = COLOR_BUTTON_OFF_BG
-		toggleBtn.TextColor3       = COLOR_BUTTON_OFF_TX
-		toggleBtn.Text             = "Backstab: OFF"
-	end
-end
-toggleBtn.MouseButton1Click:Connect(function()
-	enabled = not enabled
-	applyToggleVisuals()
-end)
-applyToggleVisuals()
-
--- Custom dragging (disabled while slider is being used)
-local dragging = false
-local dragInput, dragStart, startPos
-local sliderActive = false
-
-local function beginDrag(input)
-	if sliderActive then return end
-	dragging = true
-	dragStart = input.Position
-	startPos = mainFrame.Position
-	input.Changed:Connect(function()
-		if input.UserInputState == Enum.UserInputState.End then
-			dragging = false
+minimizeButton.MouseButton1Click:Connect(function()
+	minimized = not minimized
+	for _, child in ipairs(bgFrame:GetChildren()) do
+		if child ~= title and child ~= minimizeButton and child:IsA("GuiObject") then
+			child.Visible = not minimized
 		end
+	end
+end)
+
+-- Toggle Logic
+toggleButton.MouseButton1Click:Connect(function()
+	enabled = not enabled
+	toggleButton.Text = "Backstab: " .. (enabled and "ON" or "OFF")
+	toggleButton.BackgroundColor3 = enabled and Color3.fromRGB(90, 0, 90) or Color3.fromRGB(60, 0, 60)
+end)
+
+-- Smooth follow function
+local function smoothFollow(hrp, targetHRP)
+	if followConnection then followConnection:Disconnect() end
+	followConnection = RunService.Heartbeat:Connect(function()
+		if not (enabled and targetHRP and targetHRP.Parent and hrp and hrp.Parent) then return end
+		local dist = (hrp.Position - targetHRP.Position).Magnitude
+		if dist > range then return end
+		local desiredPos = targetHRP.Position - (targetHRP.CFrame.LookVector * 4.2)
+		local newPos = hrp.Position:Lerp(desiredPos, 0.35) -- smoothness factor
+		hrp.CFrame = CFrame.new(newPos, targetHRP.Position)
 	end)
 end
 
-mainFrame.InputBegan:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-		-- don't start drag if initial press is inside the slider track area
-		local pos = input.Position
-		local a = sliderTrack.AbsolutePosition
-		local s = sliderTrack.AbsoluteSize
-		local insideSlider = (pos.X >= a.X and pos.X <= a.X + s.X and pos.Y >= a.Y and pos.Y <= a.Y + s.Y)
-		if not insideSlider then
-			beginDrag(input)
-		end
-	end
-end)
-
-mainFrame.InputChanged:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-		dragInput = input
-	end
-end)
-
-UserInputService.InputChanged:Connect(function(input)
-	if input == dragInput and dragging then
-		local delta = input.Position - dragStart
-		mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-		if dockBtn.Visible then
-			dockBtn.Position = mainFrame.Position
-		end
-	end
-end)
-
--- Slider drag (works on mobile + PC)
-local function setRangeFromX(x)
-	local rel = math.clamp((x - sliderTrack.AbsolutePosition.X) / sliderTrack.AbsoluteSize.X, 0, 1)
-	local newRange = math.clamp(math.floor(rel * 9 + 1 + 0.0001), 1, 10) -- 1..10
-	range = newRange
-	rangeLabel.Text = ("Range: %d"):format(range)
-	sliderKnob.Position = UDim2.new((range - 1)/9, -7, 0, -6)
-end
-
-sliderTrack.InputBegan:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-		sliderActive = true
-		setRangeFromX(input.Position.X)
-	end
-end)
-
-sliderTrack.InputEnded:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-		sliderActive = false
-	end
-end)
-
-UserInputService.InputChanged:Connect(function(input)
-	if not sliderActive then return end
-	if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-		setRangeFromX(input.Position.X)
-	end
-end)
-
---// Backstab logic ------------------------------------------------------------
-local function cancelCurrentTween()
-	if currentTween then
-		currentTween:Cancel()
-		currentTween = nil
-	end
-end
-
-local function stopFollowing()
-	cancelCurrentTween()
-	if followConn then
-		followConn:Disconnect()
-		followConn = nil
-	end
-	lastTarget = nil
-end
-
-local function tweenBehind(hrp, targetHRP)
-	local behindPos = targetHRP.Position - (targetHRP.CFrame.LookVector * followDist)
-	local targetCF  = CFrame.new(behindPos, behindPos + targetHRP.CFrame.LookVector)
-	local dist      = (hrp.Position - behindPos).Magnitude
-	local dur       = math.max(0.06, dist / tweenSpeed) -- keep it responsive
-
-	cancelCurrentTween()
-	currentTween = TweenService:Create(hrp, TweenInfo.new(dur, Enum.EasingStyle.Linear, Enum.EasingDirection.Out), { CFrame = targetCF })
-	currentTween:Play()
-	return behindPos
-end
-
-local function charHRP()
-	local ch = lp.Character or lp.CharacterAdded:Wait()
-	return ch:FindFirstChild("HumanoidRootPart")
-end
-
+-- Main Loop
 RunService.Heartbeat:Connect(function()
-	if not enabled then return end
-	if followConn then return end -- already following a target
+	if not enabled or cooldown then return end
+	local char = lp.Character
+	if not (char and char:FindFirstChild("HumanoidRootPart")) then return end
+	local hrp = char.HumanoidRootPart
 
-	local hrp = charHRP()
-	if not hrp then return end
-
-	-- Find any killer within range
 	for _, name in ipairs(killerNames) do
 		local killer = killersFolder:FindFirstChild(name)
 		if killer and killer:FindFirstChild("HumanoidRootPart") then
 			local kHRP = killer.HumanoidRootPart
-			local d = (hrp.Position - kHRP.Position).Magnitude
-			if d <= range then
-				-- Begin following this target until stab or they leave range
+			local distance = (hrp.Position - kHRP.Position).Magnitude
+
+			if distance <= range and killer ~= lastTarget then
 				lastTarget = killer
-				local stabbed = false
+				cooldown = true
 
-				followConn = RunService.Heartbeat:Connect(function()
-					if not hrp.Parent or not kHRP.Parent then
-						stopFollowing()
-						return
-					end
+				-- Start smooth follow
+				smoothFollow(hrp, kHRP)
 
-					local dist = (hrp.Position - kHRP.Position).Magnitude
-					if dist > range then
-						-- left your detection radius; stop tracking
-						stopFollowing()
-						return
-					end
+				-- Trigger dagger
+				daggerRemote:FireServer("UseActorAbility", "Dagger")
 
-					local behindPos = tweenBehind(hrp, kHRP)
-
-					-- When close enough to the behind point, stab once and stop
-					if not stabbed and (hrp.Position - behindPos).Magnitude <= closeThresh then
-						stabbed = true
-						daggerRemote:FireServer("UseActorAbility", "Dagger")
-						stopFollowing()
-					end
+				-- Wait until out of range
+				task.spawn(function()
+					repeat RunService.Heartbeat:Wait()
+						if not (hrp and kHRP and kHRP.Parent) then break end
+					until (hrp.Position - kHRP.Position).Magnitude > range
+					lastTarget = nil
+					cooldown = false
+					if followConnection then followConnection:Disconnect() end
 				end)
 
 				break
