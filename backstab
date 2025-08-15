@@ -1,38 +1,30 @@
--- Full merged script
--- Features:
---   • Styled GUI (CoreGui fallback to PlayerGui)
---   • Show/hide with RightShift
---   • Smooth Backstab (TweenService)
---   • ESP toggle that fetches & runs Exunys ESP from raw.githubusercontent
---   • Automatic Drawing registration & cleanup (for Synapse Drawing)
---   • Safe fallbacks & helpful warnings
+-- BackstabHubV3 - Full merged script
+-- Draggable GUI, smooth slider, smooth backstab, separate ESP toggle (loads Exunys ESP)
+-- Put this in a LocalScript (StarterPlayerScripts) or run with an executor.
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
-local HttpService = game:GetService("HttpService")
 local lp = Players.LocalPlayer
 
--- ======= Config / Vars =======
+-- ===== Config =====
 local backstabEnabled = false
 local espEnabled = false
 local cooldown = false
 local lastTarget = nil
-local range = 4                  -- 1..10
-local mode = "Behind"            -- "Behind" or "Around"
+local range = 5.0               -- default shown in your screenshot
+local mode = "Behind"           -- "Behind" or "Around"
 local daggerRemote = nil
--- try to find the remote safely (adjust if your path differs)
 pcall(function()
-    daggerRemote = game:GetService("ReplicatedStorage"):WaitForChild("Modules", 1):WaitForChild("Network", 1):WaitForChild("RemoteEvent", 1)
+    daggerRemote = game:GetService("ReplicatedStorage"):FindFirstChild("Modules") and game:GetService("ReplicatedStorage").Modules:FindFirstChild("Network") and game:GetService("ReplicatedStorage").Modules.Network:FindFirstChild("RemoteEvent")
 end)
-
 local killerNames = { "Jason", "c00lkidd", "JohnDoe", "1x1x1x1", "Noli" }
 local killersFolder = workspace:FindFirstChild("Players") and workspace.Players:FindFirstChild("Killers") or workspace:FindFirstChild("Killers")
 
--- ======= ESP Drawing cleanup helpers (Synapse Drawing-compatible) =======
-local espDrawings = {}   -- store all Drawing objects you create
-local espThread = nil    -- task that will run your ESP loop
+-- ===== Drawing registration & cleanup (Synapse-compatible) =====
+local espDrawings = {}
+local espThread = nil
 local originalDrawingNew = nil
 local drawingAvailable = (type(Drawing) == "table" and type(Drawing.new) == "function")
 
@@ -63,255 +55,340 @@ local function wrapDrawingNew()
     if originalDrawingNew then return end
     originalDrawingNew = Drawing.new
     Drawing.new = function(...)
-        local ok, created = pcall(originalDrawingNew, ...)
+        local ok, obj = pcall(originalDrawingNew, ...)
         if not ok then
-            return created -- propagate error object or nil
+            return obj
         end
-        -- register if valid
-        pcall(function() registerDrawing(created) end)
-        return created
+        pcall(function() registerDrawing(obj) end)
+        return obj
     end
 end
 
 local function unwrapDrawingNew()
-    if not originalDrawingNew then return end
-    pcall(function() Drawing.new = originalDrawingNew end)
-    originalDrawingNew = nil
+    if originalDrawingNew then
+        pcall(function() Drawing.new = originalDrawingNew end)
+        originalDrawingNew = nil
+    end
 end
 
--- ======= GUI Colors & Setup =======
-local COLOR_BG = Color3.fromRGB(20, 20, 20)
-local COLOR_BORDER = Color3.fromRGB(80, 80, 80)
+-- ===== UI Colors & sizing (matching your slider outline purple) =====
+local COLOR_BG = Color3.fromRGB(18, 18, 18)
+local COLOR_BORDER = Color3.fromRGB(70, 70, 70)
 local COLOR_BTN_OFF = Color3.fromRGB(40, 40, 40)
-local COLOR_BTN_ON = Color3.fromRGB(128, 0, 128) -- purple ON
-local COLOR_TEXT = Color3.fromRGB(255, 255, 255)
+local COLOR_ON = Color3.fromRGB(128, 0, 128)  -- purple (matches slider outline)
+local COLOR_TEXT = Color3.fromRGB(230, 230, 230)
+local GUI_WIDTH = 520
+local GUI_HEIGHT = 220
 
--- Create ScreenGui and parent to CoreGui if possible (executor), fallback to PlayerGui
+-- ===== Create GUI (parent to CoreGui if available) =====
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "BackstabHubV3"
 screenGui.ResetOnSpawn = false
-
-local function safeParentGui(gui)
-    -- Prefer CoreGui if available (executors). Use pcall to avoid permission errors.
-    local parentDone = false
-    pcall(function()
-        if game:GetService("CoreGui") then
-            gui.Parent = game:GetService("CoreGui")
-            parentDone = true
-        end
-    end)
-    if not parentDone then
-        gui.Parent = lp:WaitForChild("PlayerGui")
+local parentDone = false
+pcall(function()
+    if game:GetService("CoreGui") then
+        screenGui.Parent = game:GetService("CoreGui")
+        parentDone = true
     end
+end)
+if not parentDone then
+    screenGui.Parent = lp:WaitForChild("PlayerGui")
 end
-safeParentGui(screenGui)
 
--- Main frame
 local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 420, 0, 178)
-mainFrame.Position = UDim2.new(0, 12, 0, 12)
+mainFrame.Size = UDim2.new(0, GUI_WIDTH, 0, GUI_HEIGHT)
+mainFrame.Position = UDim2.new(0, 30, 0, 30)
 mainFrame.BackgroundColor3 = COLOR_BG
 mainFrame.BorderColor3 = COLOR_BORDER
-mainFrame.BorderSizePixel = 1
+mainFrame.BorderSizePixel = 2
 mainFrame.Parent = screenGui
 
-local title = Instance.new("TextLabel")
-title.Size = UDim2.new(1, 0, 0, 28)
-title.Position = UDim2.new(0, 0, 0, 0)
-title.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-title.BorderSizePixel = 0
-title.Text = "MOCKS' BACKSTAB HUB V3"
-title.TextColor3 = COLOR_TEXT
-title.Font = Enum.Font.Code
-title.TextSize = 15
-title.TextXAlignment = Enum.TextXAlignment.Left
-title.Parent = mainFrame
+-- Title bar (use as drag handle)
+local titleBar = Instance.new("TextLabel")
+titleBar.Size = UDim2.new(1, 0, 0, 34)
+titleBar.Position = UDim2.new(0, 0, 0, 0)
+titleBar.BackgroundColor3 = Color3.fromRGB(28, 28, 28)
+titleBar.BorderSizePixel = 0
+titleBar.Text = "   MOCKS' BACKSTAB HUB V3"
+titleBar.TextColor3 = COLOR_TEXT
+titleBar.Font = Enum.Font.Code
+titleBar.TextSize = 18
+titleBar.TextXAlignment = Enum.TextXAlignment.Left
+titleBar.Parent = mainFrame
 
--- left & right frames
-local leftFrame = Instance.new("Frame")
-leftFrame.Size = UDim2.new(0.5, 0, 1, -28)
-leftFrame.Position = UDim2.new(0, 0, 0, 28)
-leftFrame.BackgroundTransparency = 1
-leftFrame.Parent = mainFrame
-
-local rightFrame = Instance.new("Frame")
-rightFrame.Size = UDim2.new(0.5, 0, 1, -28)
-rightFrame.Position = UDim2.new(0.5, 0, 0, 28)
-rightFrame.BackgroundTransparency = 1
-rightFrame.Parent = mainFrame
-
+-- Divider
 local divider = Instance.new("Frame")
-divider.Size = UDim2.new(0, 2, 1, -28)
-divider.Position = UDim2.new(0.5, -1, 0, 28)
+divider.Size = UDim2.new(0, 4, 1, -34)
+divider.Position = UDim2.new(0.46, 0, 0, 34)
 divider.BackgroundColor3 = COLOR_BORDER
 divider.BorderSizePixel = 0
 divider.Parent = mainFrame
 
--- ======= Left: Backstab UI =======
-local toggleButton = Instance.new("TextButton")
-toggleButton.Size = UDim2.new(0, 200, 0, 34)
-toggleButton.Position = UDim2.new(0, 10, 0, 8)
-toggleButton.BackgroundColor3 = COLOR_BTN_OFF
-toggleButton.TextColor3 = COLOR_TEXT
-toggleButton.Font = Enum.Font.Code
-toggleButton.TextSize = 16
-toggleButton.Text = "Backstab: OFF"
-toggleButton.Parent = leftFrame
+-- Left and right containers
+local left = Instance.new("Frame")
+left.Size = UDim2.new(0.46, -8, 1, -42)
+left.Position = UDim2.new(0, 8, 0, 40)
+left.BackgroundTransparency = 1
+left.Parent = mainFrame
 
-toggleButton.MouseButton1Click:Connect(function()
-    backstabEnabled = not backstabEnabled
-    if backstabEnabled then
-        toggleButton.BackgroundColor3 = COLOR_BTN_ON
-        toggleButton.Text = "Backstab: ON"
-    else
-        toggleButton.BackgroundColor3 = COLOR_BTN_OFF
-        toggleButton.Text = "Backstab: OFF"
-    end
-end)
+local right = Instance.new("Frame")
+right.Size = UDim2.new(0.5, -16, 1, -42)
+right.Position = UDim2.new(0.5, 8, 0, 40)
+right.BackgroundTransparency = 1
+right.Parent = mainFrame
 
+-- Helper: styled TextButton factory
+local function makeBtn(parent, posY, text, width)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(0, width or 220, 0, 36)
+    btn.Position = UDim2.new(0, 10, 0, posY)
+    btn.BackgroundColor3 = COLOR_BTN_OFF
+    btn.TextColor3 = COLOR_TEXT
+    btn.Font = Enum.Font.Code
+    btn.TextSize = 16
+    btn.Text = text
+    btn.Parent = parent
+    return btn
+end
+
+-- ===== Left: Backstab controls =====
+local backstabBtn = makeBtn(left, 0, "Backstab: OFF", 220)
 local rangeLabel = Instance.new("TextLabel")
-rangeLabel.Size = UDim2.new(0, 200, 0, 18)
-rangeLabel.Position = UDim2.new(0, 10, 0, 50)
+rangeLabel.Size = UDim2.new(0, 220, 0, 20)
+rangeLabel.Position = UDim2.new(0, 10, 0, 46)
 rangeLabel.BackgroundTransparency = 1
 rangeLabel.TextColor3 = COLOR_TEXT
 rangeLabel.Font = Enum.Font.Code
 rangeLabel.TextSize = 14
 rangeLabel.Text = "Range: " .. tostring(range)
-rangeLabel.Parent = leftFrame
+rangeLabel.Parent = left
 
-local rangeSlider = Instance.new("TextButton")
-rangeSlider.Size = UDim2.new(0, 200, 0, 18)
-rangeSlider.Position = UDim2.new(0, 10, 0, 70)
-rangeSlider.BackgroundColor3 = Color3.fromRGB(60,60,60)
-rangeSlider.Text = ""
-rangeSlider.Parent = leftFrame
+-- Smooth slider area (with outline color matching ON)
+local sliderBack = Instance.new("Frame")
+sliderBack.Size = UDim2.new(0, 220, 0, 12)
+sliderBack.Position = UDim2.new(0, 10, 0, 68)
+sliderBack.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+sliderBack.BorderSizePixel = 0
+sliderBack.Parent = left
+
+local sliderOutline = Instance.new("Frame")
+sliderOutline.Size = UDim2.new(1, 6, 1, 6)
+sliderOutline.Position = UDim2.new(0, -3, 0, -3)
+sliderOutline.BackgroundColor3 = COLOR_ON
+sliderOutline.BorderSizePixel = 0
+sliderOutline.ZIndex = 0
+sliderOutline.Parent = sliderBack
 
 local sliderFill = Instance.new("Frame")
-sliderFill.Size = UDim2.new(range/10, 0, 1, 0)
-sliderFill.BackgroundColor3 = COLOR_BTN_ON
+sliderFill.Size = UDim2.new((range - 1) / 9, 0, 1, 0) -- maps 1..10 to 0..1
+sliderFill.BackgroundColor3 = COLOR_ON
 sliderFill.BorderSizePixel = 0
-sliderFill.Parent = rangeSlider
+sliderFill.ZIndex = 1
+sliderFill.Parent = sliderBack
 
-rangeSlider.MouseButton1Click:Connect(function()
-    range = range + 1
-    if range > 10 then range = 1 end
-    sliderFill.Size = UDim2.new(range/10, 0, 1, 0)
-    rangeLabel.Text = "Range: " .. tostring(range)
-end)
+local knob = Instance.new("Frame")
+knob.Size = UDim2.new(0, 18, 0, 18)
+knob.AnchorPoint = Vector2.new(0.5, 0.5)
+local knobX = ( (range - 1) / 9 ) -- 0..1
+knob.Position = UDim2.new(knobX, 0, 0.5, 0)
+knob.BackgroundColor3 = COLOR_ON
+knob.BorderColor3 = Color3.fromRGB(30,30,30)
+knob.BorderSizePixel = 1
+knob.ZIndex = 2
+knob.Parent = sliderBack
 
-local modeButton = Instance.new("TextButton")
-modeButton.Size = UDim2.new(0, 200, 0, 26)
-modeButton.Position = UDim2.new(0, 10, 0, 96)
-modeButton.BackgroundColor3 = COLOR_BTN_OFF
-modeButton.TextColor3 = COLOR_TEXT
-modeButton.Font = Enum.Font.Code
-modeButton.TextSize = 14
-modeButton.Text = "Mode: " .. mode
-modeButton.Parent = leftFrame
+-- Mode button
+local modeBtn = makeBtn(left, 96, "Mode: " .. mode, 220)
 
-modeButton.MouseButton1Click:Connect(function()
-    mode = (mode == "Behind") and "Around" or "Behind"
-    modeButton.Text = "Mode: " .. mode
-end)
+-- ===== Right: ESP controls =====
+local espBtn = makeBtn(right, 0, "ESP: OFF", 260)
 
--- ======= Right: ESP UI =======
-local espButton = Instance.new("TextButton")
-espButton.Size = UDim2.new(0, 200, 0, 34)
-espButton.Position = UDim2.new(0, 10, 0, 8)
-espButton.BackgroundColor3 = COLOR_BTN_OFF
-espButton.TextColor3 = COLOR_TEXT
-espButton.Font = Enum.Font.Code
-espButton.TextSize = 16
-espButton.Text = "ESP: OFF"
-espButton.Parent = rightFrame
+-- remove the "ESP will fetch..." text (user asked to remove) - keep an unobtrusive label for status if needed
+local espStatus = Instance.new("TextLabel")
+espStatus.Size = UDim2.new(0, 260, 0, 18)
+espStatus.Position = UDim2.new(0, 10, 0, 46)
+espStatus.BackgroundTransparency = 1
+espStatus.TextColor3 = COLOR_TEXT
+espStatus.Font = Enum.Font.Code
+espStatus.TextSize = 13
+espStatus.Text = "" -- intentionally empty per request
+espStatus.Parent = right
 
-local espLabel = Instance.new("TextLabel")
-espLabel.Size = UDim2.new(0, 200, 0, 18)
-espLabel.Position = UDim2.new(0, 10, 0, 50)
-espLabel.BackgroundTransparency = 1
-espLabel.TextColor3 = COLOR_TEXT
-espLabel.Font = Enum.Font.Code
-espLabel.TextSize = 13
-espLabel.Text = "ESP: will fetch & run Exunys ESP"
-espLabel.Parent = rightFrame
+-- ===== Draggable logic (titleBar drag) =====
+do
+    local dragging = false
+    local dragInput, dragStart, startPos
 
--- ======= Show/Hide GUI with RightShift =======
+    local function update(input)
+        local delta = input.Position - dragStart
+        local newPos = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
+        TweenService:Create(mainFrame, TweenInfo.new(0.08, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = newPos}):Play()
+    end
+
+    titleBar.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            dragStart = input.Position
+            startPos = mainFrame.Position
+            dragInput = input
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+
+    titleBar.InputChanged:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseMovement then
+            if dragging then
+                dragInput = input
+            end
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if input == dragInput and dragging then
+            update(input)
+        end
+    end)
+end
+
+-- ===== Slider drag + smooth tween behavior =====
+do
+    local dragging = false
+    local function setSliderFromCursor(x)
+        local absX = sliderBack.AbsolutePosition.X
+        local width = sliderBack.AbsoluteSize.X
+        local rel = math.clamp((x - absX) / width, 0, 1)
+        local newRange = 1 + rel * 9 -- maps 0..1 -> 1..10
+        -- smooth rounding to one decimal
+        newRange = math.floor(newRange * 10 + 0.5) / 10
+        range = newRange
+        rangeLabel.Text = "Range: " .. tostring(range)
+        -- tween knob and fill
+        local targetFill = (range - 1) / 9
+        pcall(function()
+            TweenService:Create(sliderFill, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Size = UDim2.new(targetFill, 0, 1, 0)}):Play()
+            TweenService:Create(knob, TweenInfo.new(0.12, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {Position = UDim2.new(targetFill, 0, 0.5, 0)}):Play()
+        end)
+    end
+
+    knob.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            dragging = true
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then
+                    dragging = false
+                end
+            end)
+        end
+    end)
+
+    sliderBack.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            local x = input.Position.X
+            setSliderFromCursor(x)
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+            setSliderFromCursor(input.Position.X)
+        end
+    end)
+end
+
+-- ===== Show/Hide GUI with RightShift =====
 local guiVisible = true
 local function setGuiVisible(vis)
     guiVisible = vis
     mainFrame.Visible = vis
 end
-setGuiVisible(true)
 
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-    if gameProcessed then return end
+UserInputService.InputBegan:Connect(function(input, gameProcessedEvent)
+    if gameProcessedEvent then return end
     if input.KeyCode == Enum.KeyCode.RightShift then
         setGuiVisible(not guiVisible)
     end
 end)
 
--- ======= ESP Loader & Toggle Logic =======
--- raw file URL (the one you provided)
-local ESP_RAW_URL = "https://raw.githubusercontent.com/Exunys/Exunys-ESP/main/src/ESP.lua"
+-- ===== Button callbacks =====
+backstabBtn.MouseButton1Click:Connect(function()
+    backstabEnabled = not backstabEnabled
+    if backstabEnabled then
+        backstabBtn.BackgroundColor3 = COLOR_ON
+        backstabBtn.Text = "Backstab: ON"
+    else
+        backstabBtn.BackgroundColor3 = COLOR_BTN_OFF
+        backstabBtn.Text = "Backstab: OFF"
+    end
+end)
 
+modeBtn.MouseButton1Click:Connect(function()
+    mode = (mode == "Behind") and "Around" or "Behind"
+    modeBtn.Text = "Mode: " .. mode
+end)
+
+-- ===== ESP Toggle: fetch & run Exunys ESP using the exact pattern, wrapping Drawing.new for cleanup =====
+local ESP_RAW_URL = "https://raw.githubusercontent.com/Exunys/Exunys-ESP/main/src/ESP.lua"
 local function safeHttpGet(url)
-    local ok, res = pcall(function()
-        return (game.HttpGet and game:HttpGet(url)) or (syn and syn.request and syn.request({ Url = url, Method = "GET" }).Body) or (http and http.request and http.request({ Url = url }).Body)
-    end)
-    return ok and res or nil
+    -- try different common executor functions
+    local ok, body
+    ok, body = pcall(function() return game:HttpGet(url) end)
+    if ok and body then return body end
+    ok, body = pcall(function() return (syn and syn.request and syn.request({Url = url, Method = "GET"}).Body) end)
+    if ok and body then return body end
+    ok, body = pcall(function() return (http and http.request and http.request({Url = url}).Body) end)
+    if ok and body then return body end
+    return nil
 end
 
-espButton.MouseButton1Click:Connect(function()
+espBtn.MouseButton1Click:Connect(function()
     espEnabled = not espEnabled
     if espEnabled then
-        espButton.BackgroundColor3 = COLOR_BTN_ON
-        espButton.Text = "ESP: ON"
-
-        -- if Drawing not available, warn and don't attempt to run remote ESP
+        espBtn.BackgroundColor3 = COLOR_ON
+        espBtn.Text = "ESP: ON"
         if not drawingAvailable then
-            warn("[BackstabHub] Drawing API not available. ESP will not run.")
+            warn("[BackstabHub] Drawing API not found. ESP will not run.")
+            espEnabled = false
+            espBtn.BackgroundColor3 = COLOR_BTN_OFF
+            espBtn.Text = "ESP: OFF"
             return
         end
 
-        -- wrap Drawing.new so created drawings are auto-registered
+        -- wrap Drawing.new so creations are auto-registered
         wrapDrawingNew()
 
-        -- Fetch the ESP file & run it in a safe task
+        -- start thread
         if not espThread or (espThread and coroutine.status(espThread) == "dead") then
             espThread = task.spawn(function()
-                local raw = safeHttpGet(ESP_RAW_URL)
-                if not raw then
-                    warn("[BackstabHub] Could not fetch ESP from URL: " .. tostring(ESP_RAW_URL))
-                    espEnabled = false
-                    espButton.BackgroundColor3 = COLOR_BTN_OFF
-                    espButton.Text = "ESP: OFF"
-                    unwrapDrawingNew()
-                    return
-                end
-
-                -- run the ESP code. Many ESP modules expect to run as a script — we just execute it.
-                local ok, err = pcall(function()
-                    local fn = loadstring(raw)
-                    assert(fn, "loadstring failed")
+                -- The Exunys ESP expects:
+                -- local ESPLibrary = loadstring(game:HttpGet("..."))()
+                -- We'll call that exact code inside a pcall.
+                local ok, res = pcall(function()
+                    -- Try to use game:HttpGet if available (most executors support it)
+                    local chunk = nil
+                    -- Prefer to call the loadstring wrapper directly as they requested
+                    chunk = "local ESPLibrary = loadstring(game:HttpGet('" .. ESP_RAW_URL .. "'))()\n"
+                    -- Run the chunk. This will execute the library's init code.
+                    local fn, err = loadstring(chunk)
+                    if not fn then
+                        error("loadstring failed: " .. tostring(err))
+                    end
                     fn()
                 end)
                 if not ok then
-                    warn("[BackstabHub] Error running ESP module: ", err)
-                    -- cleanup and disable
+                    warn("[BackstabHub] Failed to load/run Exunys ESP: " .. tostring(res))
                     espEnabled = false
-                    espButton.BackgroundColor3 = COLOR_BTN_OFF
-                    espButton.Text = "ESP: OFF"
+                    espBtn.BackgroundColor3 = COLOR_BTN_OFF
+                    espBtn.Text = "ESP: OFF"
                     cleanupDrawings()
                     unwrapDrawingNew()
                     return
                 end
 
-                -- NOTE: The remote module may spawn its own loops/tasks.
-                -- Because we've wrapped Drawing.new, any Drawing.new(...) calls should be auto-registered.
-                -- The module may also add other connections / Instances — you should ensure it registers or cleans them on its own,
-                -- or later add custom cleanup code here (for Instances not registered as drawings).
-
-                -- Keep this task alive while espEnabled remains true so we can respond to toggles/cleanup.
+                -- Keep the thread alive while espEnabled true so we can clean up promptly when toggled off.
                 while espEnabled do
                     task.wait(0.2)
                 end
@@ -319,28 +396,22 @@ espButton.MouseButton1Click:Connect(function()
         end
 
     else
-        -- turning off
-        espButton.BackgroundColor3 = COLOR_BTN_OFF
-        espButton.Text = "ESP: OFF"
-
-        -- signal loops to stop
+        espBtn.BackgroundColor3 = COLOR_BTN_OFF
+        espBtn.Text = "ESP: OFF"
+        -- signal termination
         espEnabled = false
-
-        -- cleanup drawings
+        -- cleanup Drawing objects created by the ESP
         cleanupDrawings()
-
-        -- restore Drawing.new to original (if it was wrapped)
+        -- unwrap if wrapped
         unwrapDrawingNew()
-
-        -- additional cleanup: if the ESP module created Instances or connections (non-Drawing), 
-        -- you should either have it register them to espDrawings or add cleanup here.
+        -- Additional cleanup for Instances created by the ESP may be necessary depending on that script.
     end
 end)
 
--- ======= Smooth Backstab Implementation =======
+-- ===== Smooth backstab core =====
 local function smoothMoveTo(part, targetCFrame, duration)
     local info = TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-    local t = TweenService:Create(part, info, { CFrame = targetCFrame })
+    local t = TweenService:Create(part, info, {CFrame = targetCFrame})
     t:Play()
     return t
 end
@@ -353,13 +424,11 @@ local function isValidKiller(k)
     return true
 end
 
--- Main loop for smooth backstab
 RunService.RenderStepped:Connect(function()
     if not backstabEnabled or cooldown then return end
     local char = lp.Character
     if not (char and char:FindFirstChild("HumanoidRootPart") and char:FindFirstChild("Humanoid")) then return end
     local hrp = char.HumanoidRootPart
-
     if not killersFolder then return end
 
     for _, name in ipairs(killerNames) do
@@ -368,6 +437,9 @@ RunService.RenderStepped:Connect(function()
             local kHRP = killer.HumanoidRootPart
             local dist = (hrp.Position - kHRP.Position).Magnitude
             if dist <= range then
+                cooldown = true
+                lastTarget = killer
+
                 local behindPos
                 if mode == "Around" then
                     behindPos = kHRP.Position - (kHRP.CFrame.LookVector * 1.5)
@@ -375,14 +447,11 @@ RunService.RenderStepped:Connect(function()
                     behindPos = kHRP.Position - (kHRP.CFrame.LookVector * 2)
                 end
 
-                cooldown = true
-                lastTarget = killer
-
                 local targetCFrame = CFrame.new(behindPos, kHRP.Position)
                 local tween = smoothMoveTo(hrp, targetCFrame, 0.28)
                 tween.Completed:Wait()
 
-                -- Fire stab / dagger remote calls safely (try a few common signatures)
+                -- attempt remote calls safely (adjust for your game's API if needed)
                 pcall(function()
                     if daggerRemote then
                         pcall(function() daggerRemote:FireServer("UseActorAbility", "Dagger") end)
@@ -392,7 +461,6 @@ RunService.RenderStepped:Connect(function()
 
                 task.wait(0.26)
 
-                -- Reset cooldown after leaving range
                 task.spawn(function()
                     task.wait(0.35)
                     while killer and killer.Parent and (hrp.Position - kHRP.Position).Magnitude <= range do
@@ -408,9 +476,9 @@ RunService.RenderStepped:Connect(function()
     end
 end)
 
--- ======= Helpful runtime messages =======
+-- ===== Final runtime note =====
 if not drawingAvailable then
-    warn("[BackstabHub] Drawing library not detected. ESP will not run unless executed by an exploit that provides Drawing.")
+    warn("[BackstabHub] Drawing API not detected. ESP requires an exploit that supplies Drawing.")
 end
 
 -- End of script
