@@ -1,129 +1,167 @@
 local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
-local UIS = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
 local lp = Players.LocalPlayer
 
--- GUI Setup
+-- Vars
+local enabled = false
+local cooldown = false
+local lastTarget = nil
+local range = 7.2
+local mode = "Behind"
+local espEnabled = false
+local daggerRemote = ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Network"):WaitForChild("RemoteEvent")
+local killerNames = { "Jason", "c00lkidd", "JohnDoe", "1x1x1x1", "Noli" }
+local killersFolder = workspace:WaitForChild("Players"):WaitForChild("Killers")
+
+-- GUI Colors
+local bgColor = Color3.fromRGB(40, 40, 42)
+local panelColor = Color3.fromRGB(60, 60, 70)
+local activeColor = Color3.fromRGB(160, 170, 200)
+local textColor = Color3.fromRGB(230, 230, 230)
+
+-- ScreenGui
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "MainToggleGui"
+screenGui.Name = "BackstabHub"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = lp:WaitForChild("PlayerGui")
 
 -- Main Frame
 local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 200, 0, 160)
-mainFrame.Position = UDim2.new(0.5, -100, 0.5, -80)
-mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
-mainFrame.BorderSizePixel = 0
-mainFrame.Visible = true
+mainFrame.Size = UDim2.new(0, 500, 0, 300)
+mainFrame.Position = UDim2.new(0, 20, 0, 20)
+mainFrame.BackgroundColor3 = bgColor
+mainFrame.BorderColor3 = panelColor
+mainFrame.BorderSizePixel = 2
 mainFrame.Parent = screenGui
 
--- Draggable
-local dragging, dragInput, dragStart, startPos
-mainFrame.InputBegan:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseButton1 then
-		dragging = true
-		dragStart = input.Position
-		startPos = mainFrame.Position
-		input.Changed:Connect(function()
-			if input.UserInputState == Enum.UserInputState.End then
-				dragging = false
-			end
-		end)
-	elseif input.UserInputType == Enum.UserInputType.Touch then
-		dragging = true
-		dragStart = input.Position
-		startPos = mainFrame.Position
-		input.Changed:Connect(function()
-			if input.UserInputState == Enum.UserInputState.End then
-				dragging = false
-			end
-		end)
-	end
-end)
+-- Title Bar
+local titleBar = Instance.new("TextLabel")
+titleBar.Size = UDim2.new(1, 0, 0, 25)
+titleBar.BackgroundColor3 = panelColor
+titleBar.BorderSizePixel = 0
+titleBar.Text = "MOCKS’ BACKSTAB HUB V3"
+titleBar.TextColor3 = textColor
+titleBar.Font = Enum.Font.Code
+titleBar.TextSize = 18
+titleBar.TextXAlignment = Enum.TextXAlignment.Left
+titleBar.Parent = mainFrame
 
-mainFrame.InputChanged:Connect(function(input)
-	if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-		dragInput = input
-	end
-end)
+-- Left Panel
+local leftPanel = Instance.new("Frame")
+leftPanel.Size = UDim2.new(0, 160, 1, -25)
+leftPanel.Position = UDim2.new(0, 0, 0, 25)
+leftPanel.BackgroundColor3 = bgColor
+leftPanel.BorderColor3 = panelColor
+leftPanel.Parent = mainFrame
 
-UIS.InputChanged:Connect(function(input)
-	if input == dragInput and dragging then
-		local delta = input.Position - dragStart
-		mainFrame.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X,
-			startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-	end
-end)
+-- Right Panel
+local rightPanel = Instance.new("Frame")
+rightPanel.Size = UDim2.new(1, -165, 1, -25)
+rightPanel.Position = UDim2.new(0, 165, 0, 25)
+rightPanel.BackgroundColor3 = bgColor
+rightPanel.BorderColor3 = panelColor
+rightPanel.Parent = mainFrame
 
--- Toggle GUI with RightShift
-UIS.InputBegan:Connect(function(input, gameProcessed)
-	if not gameProcessed and input.KeyCode == Enum.KeyCode.RightShift then
-		mainFrame.Visible = not mainFrame.Visible
-	end
-end)
+-- Backstab Button
+local backstabBtn = Instance.new("TextButton")
+backstabBtn.Size = UDim2.new(1, -10, 0, 30)
+backstabBtn.Position = UDim2.new(0, 5, 0, 5)
+backstabBtn.BackgroundColor3 = panelColor
+backstabBtn.TextColor3 = textColor
+backstabBtn.Font = Enum.Font.Code
+backstabBtn.TextSize = 18
+backstabBtn.Text = "backstab: off"
+backstabBtn.Parent = leftPanel
 
--- Backstab Toggle Button
-local toggleButton = Instance.new("TextButton")
-toggleButton.Size = UDim2.new(0, 180, 0, 40)
-toggleButton.Position = UDim2.new(0, 10, 0, 10)
-toggleButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-toggleButton.Font = Enum.Font.SourceSansBold
-toggleButton.TextSize = 20
-toggleButton.Text = "Backstab: OFF"
-toggleButton.Parent = mainFrame
+backstabBtn.MouseButton1Click:Connect(function()
+	enabled = not enabled
+	backstabBtn.BackgroundColor3 = enabled and activeColor or panelColor
+	backstabBtn.Text = "backstab: " .. (enabled and "on" or "off")
+end)
 
 -- Range Label
 local rangeLabel = Instance.new("TextLabel")
-rangeLabel.Size = UDim2.new(0, 180, 0, 20)
-rangeLabel.Position = UDim2.new(0, 10, 0, 55)
+rangeLabel.Size = UDim2.new(1, -10, 0, 20)
+rangeLabel.Position = UDim2.new(0, 5, 0, 40)
 rangeLabel.BackgroundTransparency = 1
-rangeLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
-rangeLabel.Font = Enum.Font.SourceSans
+rangeLabel.TextColor3 = textColor
+rangeLabel.Font = Enum.Font.Code
 rangeLabel.TextSize = 16
-rangeLabel.Text = "Range:"
-rangeLabel.Parent = mainFrame
+rangeLabel.Text = "range: " .. tostring(range)
+rangeLabel.Parent = leftPanel
 
--- Range Box
-local rangeBox = Instance.new("TextBox")
-rangeBox.Size = UDim2.new(0, 180, 0, 25)
-rangeBox.Position = UDim2.new(0, 10, 0, 75)
-rangeBox.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
-rangeBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-rangeBox.Font = Enum.Font.SourceSans
-rangeBox.TextSize = 16
-rangeBox.PlaceholderText = "Enter range (1 - 10)"
-rangeBox.Text = "4"
-rangeBox.ClearTextOnFocus = false
-rangeBox.Parent = mainFrame
+-- Range Slider
+local sliderFrame = Instance.new("Frame")
+sliderFrame.Size = UDim2.new(1, -10, 0, 10)
+sliderFrame.Position = UDim2.new(0, 5, 0, 60)
+sliderFrame.BackgroundColor3 = panelColor
+sliderFrame.Parent = leftPanel
 
--- Mode Toggle
-local modeButton = Instance.new("TextButton")
-modeButton.Size = UDim2.new(0, 180, 0, 25)
-modeButton.Position = UDim2.new(0, 10, 0, 105)
-modeButton.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
-modeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-modeButton.Font = Enum.Font.SourceSans
-modeButton.TextSize = 16
-modeButton.Text = "Mode: Behind"
-modeButton.Parent = mainFrame
+local sliderFill = Instance.new("Frame")
+sliderFill.Size = UDim2.new(range / 10, 0, 1, 0)
+sliderFill.BackgroundColor3 = activeColor
+sliderFill.BorderSizePixel = 0
+sliderFill.Parent = sliderFrame
+
+local sliderButton = Instance.new("TextButton")
+sliderButton.Size = UDim2.new(0, 12, 0, 18)
+sliderButton.Position = UDim2.new(range / 10, -6, 0.5, -9)
+sliderButton.BackgroundColor3 = activeColor
+sliderButton.Text = ""
+sliderButton.BorderSizePixel = 0
+sliderButton.Parent = sliderFrame
+
+local dragging = false
+sliderButton.MouseButton1Down:Connect(function() dragging = true end)
+game:GetService("UserInputService").InputEnded:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+end)
+game:GetService("UserInputService").InputChanged:Connect(function(input)
+	if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+		local relX = math.clamp((input.Position.X - sliderFrame.AbsolutePosition.X) / sliderFrame.AbsoluteSize.X, 0, 1)
+		range = math.floor(relX * 10 * 10) / 10
+		sliderFill.Size = UDim2.new(relX, 0, 1, 0)
+		sliderButton.Position = UDim2.new(relX, -6, 0.5, -9)
+		rangeLabel.Text = "range: " .. tostring(range)
+	end
+end)
+
+-- Mode Button
+local modeBtn = Instance.new("TextButton")
+modeBtn.Size = UDim2.new(1, -10, 0, 25)
+modeBtn.Position = UDim2.new(0, 5, 0, 80)
+modeBtn.BackgroundColor3 = panelColor
+modeBtn.TextColor3 = textColor
+modeBtn.Font = Enum.Font.Code
+modeBtn.TextSize = 16
+modeBtn.Text = "mode:behind"
+modeBtn.Parent = leftPanel
+
+modeBtn.MouseButton1Click:Connect(function()
+	mode = (mode == "Behind") and "Around" or "Behind"
+	modeBtn.Text = "mode:" .. string.lower(mode)
+end)
 
 -- ESP Button
-local espButton = Instance.new("TextButton")
-espButton.Size = UDim2.new(0, 180, 0, 25)
-espButton.Position = UDim2.new(0, 10, 0, 135)
-espButton.BackgroundColor3 = Color3.fromRGB(100, 100, 150)
-espButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-espButton.Font = Enum.Font.SourceSans
-espButton.TextSize = 16
-espButton.Text = "ESP: OFF"
-espButton.Parent = mainFrame
+local espBtn = Instance.new("TextButton")
+espBtn.Size = UDim2.new(0, 120, 0, 30)
+espBtn.Position = UDim2.new(0, 5, 0, 5)
+espBtn.BackgroundColor3 = panelColor
+espBtn.TextColor3 = textColor
+espBtn.Font = Enum.Font.Code
+espBtn.TextSize = 18
+espBtn.Text = "esp: off"
+espBtn.Parent = rightPanel
 
--- ESP Button logic placeholder
-espButton.MouseButton1Click:Connect(function()
-	--[[
+espBtn.MouseButton1Click:Connect(function()
+	espEnabled = not espEnabled
+	espBtn.BackgroundColor3 = espEnabled and activeColor or panelColor
+	espBtn.Text = "esp: " .. (espEnabled and "on" or "off")
+
+	if espEnabled then
+		--[[
 
 	Universal Extra-Sensory Perception (ESP) Module by Exunys © CC0 1.0 Universal (2023 - 2024)
 
@@ -1964,68 +2002,24 @@ end
 
 return Environment
 
-end)
-
--------------------------
--- BACKSTAB CODE START --
--------------------------
-
-local enabled = false
-local cooldown = false
-local lastTarget = nil
-local range = 4
-local daggerRemote = ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Network"):WaitForChild("RemoteEvent")
-local killerNames = { "Jason", "c00lkidd", "JohnDoe", "1x1x1x1", "Noli" }
-local killersFolder = workspace:WaitForChild("Players"):WaitForChild("Killers")
-
--- GUI toggle
-toggleButton.MouseButton1Click:Connect(function()
-	enabled = not enabled
-	toggleButton.Text = "Backstab: " .. (enabled and "ON" or "OFF")
-	toggleButton.BackgroundColor3 = enabled and Color3.fromRGB(50, 150, 50) or Color3.fromRGB(30, 30, 30)
-end)
-
--- Range input
-rangeBox.FocusLost:Connect(function()
-	local input = tonumber(rangeBox.Text)
-	if input and input >= 1 and input <= 10 then
-		range = input
 	else
-		rangeBox.Text = tostring(range)
+		-- PLACE YOUR "ESP OFF" CODE HERE
 	end
 end)
 
--- Mode toggle
-local mode = "Behind"
-modeButton.MouseButton1Click:Connect(function()
-	if mode == "Behind" then
-		mode = "Around"
-	else
-		mode = "Behind"
-	end
-	modeButton.Text = "Mode: " .. mode
-end)
-
--- Behind check
+-- Helper
 local function isBehindTarget(hrp, targetHRP)
 	local distance = (hrp.Position - targetHRP.Position).Magnitude
-	if distance > range then
-		return false
-	end
-	
-	if mode == "Around" then
-		return true
-	else
-		local direction = -targetHRP.CFrame.LookVector
-		local toPlayer = (hrp.Position - targetHRP.Position)
-		return toPlayer:Dot(direction) > 0.5
-	end
+	if distance > range then return false end
+	if mode == "Around" then return true end
+	local direction = -targetHRP.CFrame.LookVector
+	local toPlayer = (hrp.Position - targetHRP.Position)
+	return toPlayer:Dot(direction) > 0.5
 end
 
 -- Main loop
 RunService.Heartbeat:Connect(function()
 	if not enabled or cooldown then return end
-
 	local char = lp.Character
 	if not (char and char:FindFirstChild("HumanoidRootPart")) then return end
 	local hrp = char.HumanoidRootPart
@@ -2034,11 +2028,9 @@ RunService.Heartbeat:Connect(function()
 		local killer = killersFolder:FindFirstChild(name)
 		if killer and killer:FindFirstChild("HumanoidRootPart") then
 			local kHRP = killer.HumanoidRootPart
-
 			if isBehindTarget(hrp, kHRP) and killer ~= lastTarget then
 				cooldown = true
 				lastTarget = killer
-
 				local start = tick()
 				local didDagger = false
 
@@ -2053,13 +2045,12 @@ RunService.Heartbeat:Connect(function()
 						if connection then connection:Disconnect() end
 						return
 					end
-
 					local behindPos = kHRP.Position - (kHRP.CFrame.LookVector * 0.3)
-					hrp.CFrame = CFrame.new(behindPos, behindPos + kHRP.CFrame.LookVector)
-
+					local tweenInfo = TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+					local tween = TweenService:Create(hrp, tweenInfo, {CFrame = CFrame.new(behindPos, behindPos + kHRP.CFrame.LookVector)})
+					tween:Play()
 					if not didDagger then
 						didDagger = true
-
 						local faceStart = tick()
 						local faceConn
 						faceConn = RunService.Heartbeat:Connect(function()
@@ -2069,7 +2060,6 @@ RunService.Heartbeat:Connect(function()
 							end
 							hrp.CFrame = CFrame.new(hrp.Position, hrp.Position + kHRP.CFrame.LookVector)
 						end)
-
 						daggerRemote:FireServer("UseActorAbility", "Dagger")
 					end
 				end)
@@ -2082,13 +2072,8 @@ RunService.Heartbeat:Connect(function()
 					lastTarget = nil
 					cooldown = false
 				end)
-
 				break
 			end
 		end
 	end
 end)
-
------------------------
--- BACKSTAB CODE END --
------------------------
