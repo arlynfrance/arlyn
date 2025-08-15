@@ -222,28 +222,22 @@ knob.AutoButtonColor = false
 local knobCorner = Instance.new("UICorner", knob); knobCorner.CornerRadius = UDim.new(0, 10)
 local knobStroke = Instance.new("UIStroke", knob); knobStroke.Color = OUTLINE_COLOR; knobStroke.Thickness = 1
 
-local valueDisplay = Instance.new("TextLabel", leftFrame)
-valueDisplay.Size = UDim2.new(0, 240, 0, 20)
-valueDisplay.Position = UDim2.new(0, 10, 0, 96)
-valueDisplay.BackgroundTransparency = 1
-valueDisplay.TextColor3 = TEXT_COLOR
-valueDisplay.Font = Enum.Font.Code
-valueDisplay.TextSize = 13
-valueDisplay.Text = ("%.1f"):format(range)
-
 -- Mode button
 local modeBtn = createStyledButton(leftFrame, 128, "Mode: " .. mode, 240)
 
 -- RIGHT: ESP controls
 local espBtn = createStyledButton(rightFrame, 0, "ESP: OFF", 260)
+espBtn.Position = espBtn.Position - UDim2.new(0, 11, 0, 0)
+
 local espInfo = Instance.new("TextLabel", rightFrame)
 espInfo.Size = UDim2.new(0, 260, 0, 20)
-espInfo.Position = UDim2.new(0, 10, 0, 52)
+espInfo.Position = UDim2.new(0, -1, 0, 52) -- originally 10, now shifted left by 11
 espInfo.BackgroundTransparency = 1
 espInfo.TextColor3 = TEXT_COLOR
 espInfo.Font = Enum.Font.Code
 espInfo.TextSize = 13
 espInfo.Text = "" -- intentionally blank as requested
+
 
 -- RightShift toggle for GUI visibility
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
