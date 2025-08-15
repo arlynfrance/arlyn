@@ -1,127 +1,113 @@
+-- Services
 local Players = game:GetService("Players")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local RunService = game:GetService("RunService")
-local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
 local lp = Players.LocalPlayer
 
--- Backstab range variable
-local backstabRange = 20 -- default, slider will adjust this
-
--- Load ESP Library
+-- Load ESP library
 local ESPLibrary = loadstring(game:HttpGet("https://raw.githubusercontent.com/Exunys/Exunys-ESP/main/src/ESP.lua"))()
-ESPLibrary:Toggle(false)
 
--- GUI Setup
+-- ScreenGui setup
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "BackstabToggleGui"
+screenGui.Name = "ESPControlGui"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = lp:WaitForChild("PlayerGui")
 
--- Drag frame
+-- Draggable frame
 local mainFrame = Instance.new("Frame")
-mainFrame.Size = UDim2.new(0, 200, 0, 150)
-mainFrame.Position = UDim2.new(0.5, -100, 0.5, -75)
-mainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-mainFrame.BorderColor3 = Color3.fromRGB(100, 100, 100)
+mainFrame.Size = UDim2.new(0, 240, 0, 160)
+mainFrame.Position = UDim2.new(0.4, 0, 0.3, 0)
+mainFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 20)
+mainFrame.BorderColor3 = Color3.fromRGB(90, 90, 90)
+mainFrame.BorderSizePixel = 2
 mainFrame.Active = true
 mainFrame.Draggable = true
 mainFrame.Parent = screenGui
 
--- ESP Toggle Button
+-- Title bar
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, 0, 0, 30)
+title.BackgroundTransparency = 1
+title.Text = "ESP Controls"
+title.TextColor3 = Color3.fromRGB(255, 255, 255)
+title.Font = Enum.Font.SourceSansBold
+title.TextSize = 18
+title.Parent = mainFrame
+
+-- ESP toggle button
 local espButton = Instance.new("TextButton")
-espButton.Size = UDim2.new(1, -20, 0, 30)
-espButton.Position = UDim2.new(0, 10, 0, 10)
+espButton.Size = UDim2.new(0, 220, 0, 40) -- Resized to fit GUI
+espButton.Position = UDim2.new(0, 10, 0, 40)
 espButton.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-espButton.BorderColor3 = Color3.fromRGB(100, 100, 100)
-espButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+espButton.BorderColor3 = Color3.fromRGB(90, 90, 90)
 espButton.Text = "ESP: OFF"
+espButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+espButton.Font = Enum.Font.SourceSansBold
+espButton.TextSize = 16
 espButton.Parent = mainFrame
 
 local espEnabled = false
+
 espButton.MouseButton1Click:Connect(function()
     espEnabled = not espEnabled
-    ESPLibrary:Toggle(espEnabled)
-    espButton.Text = espEnabled and "ESP: ON" or "ESP: OFF"
-    espButton.BackgroundColor3 = espEnabled and Color3.fromRGB(100, 100, 100) or Color3.fromRGB(40, 40, 40)
+    if espEnabled then
+        ESPLibrary:Load()
+        espButton.Text = "ESP: ON"
+        espButton.BackgroundColor3 = Color3.fromRGB(60, 120, 60)
+    else
+        ESPLibrary.Unload()
+        espButton.Text = "ESP: OFF"
+        espButton.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
+    end
 end)
 
--- Slider Frame
+-- Slider for ESP range
 local sliderFrame = Instance.new("Frame")
-sliderFrame.Size = UDim2.new(1, -20, 0, 30)
-sliderFrame.Position = UDim2.new(0, 10, 0, 50)
-sliderFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-sliderFrame.BorderColor3 = Color3.fromRGB(100, 100, 100)
+sliderFrame.Size = UDim2.new(0, 220, 0, 20)
+sliderFrame.Position = UDim2.new(0, 10, 0, 100)
+sliderFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+sliderFrame.BorderColor3 = Color3.fromRGB(90, 90, 90)
 sliderFrame.Parent = mainFrame
 
 local sliderButton = Instance.new("TextButton")
-sliderButton.Size = UDim2.new(0, 10, 1, 0)
-sliderButton.Position = UDim2.new(0, 0, 0, 0)
-sliderButton.BackgroundColor3 = Color3.fromRGB(100, 100, 100)
+sliderButton.Size = UDim2.new(0, 20, 1, 0)
+sliderButton.BackgroundColor3 = Color3.fromRGB(90, 90, 90)
 sliderButton.BorderSizePixel = 0
 sliderButton.Text = ""
 sliderButton.Parent = sliderFrame
 
-local uis = game:GetService("UserInputService")
-local draggingSlider = false
+local dragging = false
+local minValue, maxValue = 0, 500 -- Slider range
+local currentValue = 250 -- Default value
 
 sliderButton.MouseButton1Down:Connect(function()
-    draggingSlider = true
+    dragging = true
 end)
 
-uis.InputEnded:Connect(function(input)
+UserInputService.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        draggingSlider = false
+        dragging = false
     end
 end)
 
-RunService.RenderStepped:Connect(function()
-    if draggingSlider then
-        local mouseX = uis:GetMouseLocation().X
-        local sliderStart = sliderFrame.AbsolutePosition.X
-        local sliderEnd = sliderStart + sliderFrame.AbsoluteSize.X
-        local sliderSize = sliderFrame.AbsoluteSize.X
+game:GetService("RunService").RenderStepped:Connect(function()
+    if dragging then
+        local mousePos = UserInputService:GetMouseLocation().X
+        local frameStart = sliderFrame.AbsolutePosition.X
+        local frameEnd = frameStart + sliderFrame.AbsoluteSize.X
+        local newX = math.clamp(mousePos - frameStart, 0, sliderFrame.AbsoluteSize.X)
+        sliderButton.Position = UDim2.new(0, newX, 0, 0)
 
-        local position = math.clamp(mouseX - sliderStart, 0, sliderSize)
-        sliderButton.Position = UDim2.new(0, position, 0, 0)
-
-        -- Convert slider position to range (5–50 studs)
-        backstabRange = math.floor(5 + (position / sliderSize) * (50 - 5))
+        local percent = newX / sliderFrame.AbsoluteSize.X
+        currentValue = math.floor(minValue + (maxValue - minValue) * percent)
+        -- Removed number display, but still updates value
     end
 end)
 
--- Backstab logic
-local function tweenBackstab(target)
-    if not target or not target:FindFirstChild("HumanoidRootPart") then return end
-    local char = lp.Character
-    if not char or not char:FindFirstChild("HumanoidRootPart") then return end
-
-    local targetPos = target.HumanoidRootPart.Position
-    local myPos = char.HumanoidRootPart.Position
-    local dist = (myPos - targetPos).Magnitude
-
-    if dist <= backstabRange then
-        local tween = TweenService:Create(
-            char.HumanoidRootPart,
-            TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-            {CFrame = CFrame.new(targetPos - target.HumanoidRootPart.CFrame.LookVector * 2)}
-        )
-        tween:Play()
-    end
-end
-
-RunService.RenderStepped:Connect(function()
-    for _, player in ipairs(Players:GetPlayers()) do
-        if player ~= lp and player.Character and player.Character:FindFirstChild("Humanoid") then
-            if player.Character.Humanoid.Health > 0 then
-                tweenBackstab(player.Character)
-            end
-        end
-    end
-end)
-
--- Toggle GUI with RightShift
-uis.InputBegan:Connect(function(input, gpe)
-    if not gpe and input.KeyCode == Enum.KeyCode.RightShift then
-        screenGui.Enabled = not screenGui.Enabled
+-- RightShift toggle GUI
+local guiVisible = true
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if not gameProcessed and input.KeyCode == Enum.KeyCode.RightShift then
+        guiVisible = not guiVisible
+        mainFrame.Visible = guiVisible
     end
 end)
