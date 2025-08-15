@@ -1,16 +1,9 @@
--- Full LocalScript: Backstab Hub V3 (paste into StarterPlayerScripts)
--- Features:
---  * GUI matching your screenshot style (title, left column, right panel)
---  * Draggable title, RightShift to toggle on PC
---  * Always-visible bottom arrow (mobile) toggles GUI (▲ closed, ▼ open)
---  * Range slider 1.0 -> 10.0 with 0.1 steps, properly centered knob (mouse & touch)
---  * Mode toggle (Behind / Around)
---  * Backstab logic (Quad tween behind killers, dagger remote, cooldown)
---  * Dual ESP: PC loads Exunys Drawing ESP (if possible), Mobile uses Highlight-based ESP (full detail)
---  * Unified ESP toggle button
---  * Robust fallback & diagnostics
+-- Full integrated LocalScript
+-- Backstab Hub VFinal: GUI (screenshot style) + Dual-ESP (embedded Drawing ESP for PC + Highlight ESP for mobile)
+-- + Range slider (1-10) fixed knob + Mode + Backstab tween (Quad) + Mobile arrow + RightShift + touch input support
+-- Place in StarterPlayerScripts as a LocalScript.
 
--- SERVICES
+-- ===== Services =====
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
@@ -21,62 +14,60 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local lp = Players.LocalPlayer
 local camera = Workspace.CurrentCamera
 
--- ==========
--- Preserved Behaviour Variables
--- ==========
+-- ===== preserved/backstab settings =====
 local enabled = false
 local cooldown = false
 local lastTarget = nil
-local range = 7.2 -- default range; saved to attribute on change
+local range = 7.2 -- default, can be changed by slider
 local mode = "Behind" -- "Behind" or "Around"
 local daggerRemote = ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Network"):WaitForChild("RemoteEvent")
 local killerNames = { "Jason", "c00lkidd", "JohnDoe", "1x1x1x1", "Noli" }
 local killersFolder = workspace:WaitForChild("Players"):WaitForChild("Killers")
 
--- restore saved range if attribute exists
+-- restore range attribute if present
 if lp:GetAttribute("BackstabRange") then
 	local v = lp:GetAttribute("BackstabRange")
 	if type(v) == "number" then range = v end
 end
 
--- UI Colors
+-- ===== UI Colors =====
 local BG = Color3.fromRGB(40,40,42)
 local PANEL = Color3.fromRGB(60,60,70)
 local ACCENT = Color3.fromRGB(160,170,200)
 local TEXT = Color3.fromRGB(230,230,230)
 
--- Platform detection helpers
-local function detectIsMobile()
+-- ===== Platform detection (reliable) =====
+local function isMobile()
 	local uis = UserInputService
+	-- Touch-enabled and no keyboard indicates mobile device
 	return uis.TouchEnabled and not uis.KeyboardEnabled
 end
-local function detectIsPC()
+local function isPC()
 	local uis = UserInputService
 	return uis.KeyboardEnabled or uis.MouseEnabled
 end
 
-local PLATFORM_IS_MOBILE = detectIsMobile()
+local PLATFORM_IS_MOBILE = isMobile()
 local PLATFORM_IS_PC = not PLATFORM_IS_MOBILE
 
-print(("BackstabHubV3: Platform PC=%s Mobile=%s"):format(tostring(PLATFORM_IS_PC), tostring(PLATFORM_IS_MOBILE)))
+-- Debug print
+print(("BackstabHub: detected platform -> PC=%s, Mobile=%s"):format(tostring(PLATFORM_IS_PC), tostring(PLATFORM_IS_MOBILE)))
 
--- safe pcall convenience
-local function safe(fn, ...)
+-- ===== Safe helpers =====
+local function safepcall(fn, ...)
 	local ok, a, b, c = pcall(fn, ...)
-	if not ok then warn("BackstabHubV3 error:", a) end
+	if not ok then warn("BackstabHub error:", a) end
 	return ok, a, b, c
 end
 
--- ==========
--- GUI Construction
--- ==========
+-- ===== Build GUI =====
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "BackstabHubV3"
+screenGui.Name = "BackstabToggleGui_VFinal"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = lp:WaitForChild("PlayerGui")
-screenGui.Enabled = true -- ensure visible (fix earlier issue)
+screenGui.Enabled = true -- ensure visible on start
 
--- main frame
+-- Main frame
 local main = Instance.new("Frame")
 main.Name = "Main"
 main.Size = UDim2.new(0,520,0,320)
@@ -86,117 +77,129 @@ main.BorderColor3 = PANEL
 main.BorderSizePixel = 3
 main.Parent = screenGui
 
--- title bar
-local titleBar = Instance.new("Frame", main)
+-- Title bar
+local titleBar = Instance.new("Frame")
 titleBar.Name = "TitleBar"
 titleBar.Size = UDim2.new(1,0,0,30)
+titleBar.Position = UDim2.new(0,0,0,0)
 titleBar.BackgroundColor3 = PANEL
 titleBar.BorderSizePixel = 0
+titleBar.Parent = main
 
-local titleLabel = Instance.new("TextLabel", titleBar)
+local titleLabel = Instance.new("TextLabel")
 titleLabel.Size = UDim2.new(1,-12,1,0)
 titleLabel.Position = UDim2.new(0,6,0,0)
 titleLabel.BackgroundTransparency = 1
-titleLabel.Text = "MOCKS' BACKSTAB HUB V3"
+titleLabel.Text = "MOCKS' BACKSTAB HUB VFINAL"
 titleLabel.TextColor3 = TEXT
 titleLabel.Font = Enum.Font.Code
 titleLabel.TextSize = 18
 titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+titleLabel.Parent = titleBar
 
 -- divider
-local divider = Instance.new("Frame", main)
+local divider = Instance.new("Frame")
 divider.Size = UDim2.new(1,0,0,6)
 divider.Position = UDim2.new(0,0,0,30)
 divider.BackgroundColor3 = PANEL
 divider.BorderSizePixel = 0
+divider.Parent = main
 
 -- left column & right panel
-local leftCol = Instance.new("Frame", main)
+local leftCol = Instance.new("Frame")
 leftCol.Name = "LeftCol"
 leftCol.Size = UDim2.new(0,170,1,-36)
 leftCol.Position = UDim2.new(0,6,0,36)
 leftCol.BackgroundTransparency = 1
+leftCol.Parent = main
 
-local rightPanel = Instance.new("Frame", main)
+local rightPanel = Instance.new("Frame")
 rightPanel.Name = "RightPanel"
 rightPanel.Size = UDim2.new(1,-188,1,-36)
 rightPanel.Position = UDim2.new(0,182,0,36)
 rightPanel.BackgroundColor3 = BG
 rightPanel.BorderColor3 = PANEL
 rightPanel.BorderSizePixel = 0
+rightPanel.Parent = main
 
-local leftBg = Instance.new("Frame", main)
+local leftBg = Instance.new("Frame")
 leftBg.Size = UDim2.new(0,164,1,-36)
 leftBg.Position = UDim2.new(0,3,0,36)
 leftBg.BackgroundColor3 = BG
 leftBg.BorderColor3 = PANEL
 leftBg.BorderSizePixel = 0
 leftBg.ZIndex = main.ZIndex - 1
+leftBg.Parent = main
 
--- helper for left buttons
+-- makeLeftButton helper
 local function makeLeftButton(y, text)
-	local b = Instance.new("TextButton")
-	b.Size = UDim2.new(1,-6,0,30)
-	b.Position = UDim2.new(0,3,0,y)
-	b.BackgroundColor3 = PANEL
-	b.TextColor3 = TEXT
-	b.Font = Enum.Font.Code
-	b.TextSize = 16
-	b.Text = text
-	b.Parent = leftCol
-	local s = Instance.new("UIStroke", b)
-	s.Color = Color3.fromRGB(80,80,90)
-	s.Thickness = 1
-	return b
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(1,-6,0,30)
+	btn.Position = UDim2.new(0,3,0,y)
+	btn.BackgroundColor3 = PANEL
+	btn.TextColor3 = TEXT
+	btn.Font = Enum.Font.Code
+	btn.TextSize = 16
+	btn.Text = text
+	btn.Parent = leftCol
+	local stroke = Instance.new("UIStroke", btn)
+	stroke.Color = Color3.fromRGB(80,80,90)
+	stroke.Thickness = 1
+	return btn
 end
 
-local backstabBtn = makeLeftButton(4, "backstab: off")
-
+-- Backstab button
+local backstabBtn = makeLeftButton(4, "Backstab: OFF")
 -- Range label
-local rangeLabel = Instance.new("TextLabel", leftCol)
+local rangeLabel = Instance.new("TextLabel")
 rangeLabel.Size = UDim2.new(1,-6,0,26)
 rangeLabel.Position = UDim2.new(0,3,0,40)
 rangeLabel.BackgroundColor3 = PANEL
 rangeLabel.TextColor3 = TEXT
 rangeLabel.Font = Enum.Font.Code
 rangeLabel.TextSize = 14
-rangeLabel.Text = "range: " .. tostring(range)
-local rangeStroke = Instance.new("UIStroke", rangeLabel)
-rangeStroke.Color = Color3.fromRGB(80,80,90)
+rangeLabel.Text = "Range: " .. tostring(range)
+rangeLabel.Parent = leftCol
+local rsStroke = Instance.new("UIStroke", rangeLabel)
+rsStroke.Color = Color3.fromRGB(80,80,90)
 
--- Slider
-local sliderFrame = Instance.new("Frame", leftCol)
+-- Slider (track, fill, knob) with properly centered knob
+local sliderFrame = Instance.new("Frame")
 sliderFrame.Size = UDim2.new(1,-12,0,16)
 sliderFrame.Position = UDim2.new(0,6,0,70)
 sliderFrame.BackgroundColor3 = Color3.fromRGB(100,100,110)
 sliderFrame.BorderSizePixel = 0
+sliderFrame.Parent = leftCol
 local sliderStroke = Instance.new("UIStroke", sliderFrame)
 sliderStroke.Color = Color3.fromRGB(80,80,90)
 
-local sliderFill = Instance.new("Frame", sliderFrame)
+local sliderFill = Instance.new("Frame")
 sliderFill.Size = UDim2.new((range - 1) / 9, 0, 1, 0)
 sliderFill.Position = UDim2.new(0,0,0,0)
 sliderFill.BackgroundColor3 = ACCENT
 sliderFill.BorderSizePixel = 0
+sliderFill.Parent = sliderFrame
 
-local knobSize = 12
-local sliderKnob = Instance.new("Frame", sliderFrame)
-sliderKnob.Name = "Knob"
-sliderKnob.Size = UDim2.new(0, knobSize, 0, knobSize)
-sliderKnob.AnchorPoint = Vector2.new(0.5,0.5) -- center anchor fixes alignment
-sliderKnob.Position = UDim2.new((range - 1)/9,0,0.5,0)
+local knobSizePx = 12
+local sliderKnob = Instance.new("Frame")
+sliderKnob.Name = "SliderKnob"
+sliderKnob.Size = UDim2.new(0, knobSizePx, 0, knobSizePx)
+sliderKnob.AnchorPoint = Vector2.new(0.5, 0.5) -- center anchor to fix misalignment
+sliderKnob.Position = UDim2.new((range - 1) / 9, 0, 0.5, 0)
 sliderKnob.BackgroundColor3 = ACCENT
+sliderKnob.Parent = sliderFrame
 local knobCorner = Instance.new("UICorner", sliderKnob)
 knobCorner.CornerRadius = UDim.new(0,4)
 
-local modeBtn = makeLeftButton(98, "mode:" .. string.lower(mode))
+-- Mode button
+local modeBtn = makeLeftButton(98, "Mode: behind")
 
--- ESP button
-local espBtn = Instance.new("TextButton", rightPanel)
+-- ESP button on right
+local espBtn = Instance.new("TextButton")
 espBtn.Size = UDim2.new(0,120,0,30)
 espBtn.Position = UDim2.new(0,8,0,8)
 espBtn.BackgroundColor3 = PANEL
-espBtn.Text = "esp: off"
+espBtn.Text = "ESP: OFF"
 espBtn.TextColor3 = TEXT
 espBtn.Font = Enum.Font.Code
 espBtn.TextSize = 16
@@ -204,9 +207,34 @@ espBtn.Parent = rightPanel
 local espStroke = Instance.new("UIStroke", espBtn)
 espStroke.Color = Color3.fromRGB(80,80,90)
 
--- Mobile arrow (always visible, bottom center)
+-- Mobile arrow (always visible) bottom center
 local arrowBtn = Instance.new("TextButton")
 arrowBtn.Name = "MobileArrow"
 arrowBtn.Size = UDim2.new(0,64,0,40)
 arrowBtn.AnchorPoint = Vector2.new(0.5,1)
--- Use Scale for center X, keep a fixed Y offset to sit above bottom bar on phones
+arrowBtn.Position = UDim2.new(0.5, 0, 1, -20) -- bottom center
+arrowBtn.BackgroundColor3 = Color3.fromRGB(50,50,55)
+arrowBtn.BorderSizePixel = 0
+arrowBtn.Parent = screenGui
+arrowBtn.ZIndex = 1000
+arrowBtn.AutoButtonColor = true
+
+local arrowLabel = Instance.new("TextLabel", arrowBtn)
+arrowLabel.Size = UDim2.new(1,0,1,0)
+arrowLabel.BackgroundTransparency = 1
+arrowLabel.Text = "▲"
+arrowLabel.Font = Enum.Font.SourceSansBold
+arrowLabel.TextSize = 24
+arrowLabel.TextColor3 = Color3.fromRGB(255,255,255)
+
+arrowBtn.Visible = true
+leftBg.ZIndex = main.ZIndex + 1
+
+-- ===== Draggable Title Bar (supports touch & mouse) =====
+main.Active = true
+local dragging = false
+local dragStart = Vector2.new()
+local mainStartPos = main.Position
+
+titleBar.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType
