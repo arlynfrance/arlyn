@@ -238,16 +238,13 @@ espInfo.Font = Enum.Font.Code
 espInfo.TextSize = 10
 espInfo.Text = "" -- intentionally blank as requested
 
--- ESP toggle function
+-- ESP toggle logic
 local espEnabled = false
-
 espBtn.MouseButton1Click:Connect(function()
     espEnabled = not espEnabled
 
     if espEnabled then
-        if not getgenv().ExunysDeveloperESP then
-            getgenv().ESPLibrary = loadstring(game:HttpGet("https://raw.githubusercontent.com/Exunys/Exunys-ESP/main/src/ESP.lua"))()
-        end
+        getgenv().ESPLibrary = loadstring(game:HttpGet("https://raw.githubusercontent.com/Exunys/Exunys-ESP/main/src/ESP.lua"))()
         getgenv().ESPLibrary:Load()
         espBtn.Text = "ESP: ON"
     else
@@ -257,6 +254,7 @@ espBtn.MouseButton1Click:Connect(function()
         espBtn.Text = "ESP: OFF"
     end
 end)
+
 
 
 
