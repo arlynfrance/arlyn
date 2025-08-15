@@ -1,7 +1,5 @@
--- MOCKS' BACKSTAB SCRIPT (with in-place Exunys ESP toggle)
--- Standalone LocalScript for StarterPlayerScripts
--- Loads Exunys' ESP from raw GitHub when toggled on; attempts best-effort cleanup when toggled off.
--- Source URL: https://raw.githubusercontent.com/Exunys/Exunys-ESP/main/src/ESP.lua
+-- MOCKS' BACKSTAB SCRIPT (Standalone)
+-- Place this LocalScript in StarterPlayerScripts
 
 -- Services
 local Players = game:GetService("Players")
@@ -13,33 +11,52 @@ local camera = workspace.CurrentCamera
 
 local lp = Players.LocalPlayer
 
--- (Backstab / dagger remote handling — preserve your behavior)
+-- ======= Config / Defaults =======
+local DEFAULTS = {
+    updateRate = 0.033,
+    tracerSmoothing = 0.45,
+    posSmoothing = 0.45,
+    tracerThickness = 2,
+    healthBarWidth = 4,          -- changed to 4px per your request
+    healthGapPx = 3,
+    tracerOriginOffset = 36,
+    tweenDuration = 0.20,
+    boxWidthRatio = 0.45,
+}
+
+local EXUNYS_URL = "https://raw.githubusercontent.com/Exunys/Exunys-ESP/main/src/ESP.lua"
+
+-- Remote (safe pcall)
 local daggerRemote
 pcall(function()
     daggerRemote = ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Network"):WaitForChild("RemoteEvent")
 end)
 
--- basic backstab state (keeps your original control)
+-- Killer list (color red)
+local killerNames = { "Jason", "c00lkidd", "JohnDoe", "1x1x1x1", "Noli" }
+local killerSet = {}
+for _,n in ipairs(killerNames) do killerSet[n] = true end
+
+-- ESP state persisted per session
+getgenv().ESP_SETTINGS = getgenv().ESP_SETTINGS or {
+    exunys_loaded = false,
+    range = 4.0,
+    mode = "behind",
+}
+local ESP = getgenv().ESP_SETTINGS
+
+-- Backstab state (keeps original behavior)
 local enabled = false
 local cooldown = false
 local lastTarget = nil
-local range = 4.0
-local mode = "behind"
+local range = ESP.range or 4.0
+local mode = ESP.mode or "behind"
 
--- Exunys ESP raw URL (we load this exact resource at runtime)
-local EXUNYS_ESP_URL = "https://raw.githubusercontent.com/Exunys/Exunys-ESP/main/src/ESP.lua"
+-- Visual constants (white theme)
+local WHITE = Color3.fromRGB(255,255,255)
+local KILLER_COLOR = Color3.fromRGB(255,80,80)
 
--- persistent session settings
-getgenv().ESP_SETTINGS = getgenv().ESP_SETTINGS or {
-    esp_enabled = false,
-    range = range,
-    mode = mode,
-}
-local ESP = getgenv().ESP_SETTINGS
-range = ESP.range or range
-mode = ESP.mode or mode
-
--- ----------------- GUI (keeps your layout, RightShift opens) -----------------
+-- GUI colors & geometry
 local BG_COLOR = Color3.fromRGB(37,40,45)
 local PANEL_COLOR = Color3.fromRGB(42,45,50)
 local ACCENT_COLOR = Color3.fromRGB(56,63,76)
@@ -51,6 +68,11 @@ local MAIN_W, MAIN_H = 540, 300
 local MAIN_X, MAIN_Y = 10, 10
 local OFF_Y = -350
 
+-- Helper lerp
+local function lerp(a,b,t) return a + (b-a)*t end
+local function lerpVector(a,b,t) return a:Lerp(b,t) end
+
+-- ======= GUI Build =======
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "MocksBackstabGui"
 screenGui.ResetOnSpawn = false
@@ -81,7 +103,7 @@ local titleText = Instance.new("TextLabel", titleBar)
 titleText.Size = UDim2.new(1, -12, 1, 0)
 titleText.Position = UDim2.new(0, 6, 0, 0)
 titleText.BackgroundTransparency = 1
-titleText.Text = "MOCKS' BACKSTAB SCRIPT"
+titleText.Text = "MOCKS'  BACKSTAB  SCRIPT"
 titleText.Font = Enum.Font.Code
 titleText.TextSize = 14
 titleText.TextColor3 = TITLE_COLOR
@@ -93,7 +115,6 @@ topDivider.Position = UDim2.new(0, 6, 0, 28)
 topDivider.BackgroundColor3 = ACCENT_COLOR
 topDivider.BorderSizePixel = 0
 
--- left panel (backstab controls)
 local leftPanel = Instance.new("Frame", mainFrame)
 leftPanel.Size = UDim2.new(0, 170, 1, -40)
 leftPanel.Position = UDim2.new(0, 6, 0, 36)
@@ -106,18 +127,23 @@ midSep.Position = UDim2.new(0, 180, 0, 36)
 midSep.BackgroundColor3 = ACCENT_COLOR
 midSep.BorderSizePixel = 0
 
--- rightPanel where the single esp toggle sits (replaces old multiple esp buttons)
 local rightPanel = Instance.new("Frame", mainFrame)
-rightPanel.Size = UDim2.new(0, 170, 1, -40)
+rightPanel.Size = UDim2.new(0, 358, 1, -40)
 rightPanel.Position = UDim2.new(0, 192, 0, 36)
 rightPanel.BackgroundColor3 = PANEL_COLOR
 rightPanel.BorderSizePixel = 0
 
--- small button helper
-local function makeBtn(parent, posY, text)
+local innerTop = Instance.new("Frame", mainFrame)
+innerTop.Size = UDim2.new(1, -12, 0, 6)
+innerTop.Position = UDim2.new(0, 6, 0, 32)
+innerTop.BackgroundColor3 = ACCENT_COLOR
+innerTop.BorderSizePixel = 0
+
+-- button maker
+local function makeBtn(parent, size, pos, text)
     local b = Instance.new("TextButton")
-    b.Size = UDim2.new(0, 120, 0, 28)
-    b.Position = UDim2.new(0, 8, 0, posY)
+    b.Size = size
+    b.Position = pos
     b.BackgroundColor3 = BTN_OFF
     b.BorderSizePixel = 0
     b.Font = Enum.Font.Code
@@ -129,10 +155,11 @@ local function makeBtn(parent, posY, text)
     return b
 end
 
-local backstabBtn = makeBtn(leftPanel, 8, "backstab: off")
+-- left controls (backstab and slider)
+local backstabBtn = makeBtn(leftPanel, UDim2.new(0,150,0,28), UDim2.new(0,8,0,8), "backstab: off")
 local rangeLabel = Instance.new("TextLabel", leftPanel)
-rangeLabel.Size = UDim2.new(0, 150, 0, 18)
-rangeLabel.Position = UDim2.new(0, 8, 0, 42)
+rangeLabel.Size = UDim2.new(0,150,0,18)
+rangeLabel.Position = UDim2.new(0,8,0,42)
 rangeLabel.BackgroundTransparency = 1
 rangeLabel.Font = Enum.Font.Code
 rangeLabel.TextSize = 14
@@ -141,54 +168,32 @@ rangeLabel.Text = ("range: %.1f"):format(range)
 rangeLabel.TextXAlignment = Enum.TextXAlignment.Left
 
 local sliderBg = Instance.new("Frame", leftPanel)
-sliderBg.Size = UDim2.new(0, 150, 0, 12)
-sliderBg.Position = UDim2.new(0, 8, 0, 64)
+sliderBg.Size = UDim2.new(0,150,0,12)
+sliderBg.Position = UDim2.new(0,8,0,64)
 sliderBg.BackgroundColor3 = Color3.fromRGB(60,60,65)
 sliderBg.BorderSizePixel = 0
-
 local sliderFill = Instance.new("Frame", sliderBg)
-sliderFill.Size = UDim2.new((range - 1) / 9, 0, 1, 0)
+sliderFill.Size = UDim2.new((range - 1)/9, 0, 1, 0)
 sliderFill.Position = UDim2.new(0,0,0,0)
 sliderFill.BackgroundColor3 = Color3.fromRGB(110,110,120)
 sliderFill.BorderSizePixel = 0
-
 local sliderKnob = Instance.new("TextButton", sliderBg)
-sliderKnob.Size = UDim2.new(0, 12, 0, 12)
-sliderKnob.Position = UDim2.new((range - 1) / 9, -6, 0, 0)
+sliderKnob.Size = UDim2.new(0,12,0,12)
+sliderKnob.Position = UDim2.new((range - 1)/9, -6, 0, 0)
 sliderKnob.BackgroundColor3 = Color3.fromRGB(30,30,30)
 sliderKnob.BorderSizePixel = 0
 sliderKnob.AutoButtonColor = false
 sliderKnob.Text = ""
+local modeBtn = makeBtn(leftPanel, UDim2.new(0,150,0,24), UDim2.new(0,8,0,92), ("mode:%s"):format(mode))
 
-local modeBtn = makeBtn(leftPanel, 92, ("mode:%s"):format(mode))
+-- right side: single esp toggle button sits where old buttons were
+local espToggleBtn = makeBtn(rightPanel, UDim2.new(0,120,0,28), UDim2.new(0,8,0,8), ("esp: %s"):format(ESP.exunys_loaded and "on" or "off"))
+espToggleBtn.Text = ("esp: %s"):format(ESP.exunys_loaded and "on" or "off")
 
--- THE single Exunys ESP toggle (replaces all old esp buttons)
-local exunysBtn = makeBtn(rightPanel, 8, ("esp: %s"):format(ESP.esp_enabled and "on" or "off"))
+-- helper to update visuals
+local function updateBtnVisual(btn, on) btn.BackgroundColor3 = on and BTN_ON or BTN_OFF end
 
--- slider behavior
-local dragging = false
-local function setSliderFromX(x)
-    local absPos = sliderBg.AbsolutePosition.X
-    local absSize = sliderBg.AbsoluteSize.X
-    local localX = math.clamp(x - absPos, 0, absSize)
-    local pct = (absSize > 0) and (localX / absSize) or 0
-    sliderFill.Size = UDim2.new(pct, 0, 1, 0)
-    sliderKnob.Position = UDim2.new(pct, -6, 0, 0)
-    range = 1 + pct * 9
-    rangeLabel.Text = ("range: %.1f"):format(range)
-    ESP.range = range
-    getgenv().ESP_SETTINGS = ESP
-end
-
-sliderKnob.MouseButton1Down:Connect(function() dragging = true end)
-UserInputService.InputChanged:Connect(function(inp)
-    if dragging and inp.UserInputType == Enum.UserInputType.MouseMovement then setSliderFromX(inp.Position.X) end
-end)
-UserInputService.InputEnded:Connect(function(inp)
-    if inp.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
-end)
-
--- GUI open/close with RightShift
+-- GUI visibility toggling (RightShift)
 local guiVisible = false
 local function slideIn()
     mainFrame.Visible = true
@@ -214,166 +219,149 @@ UserInputService.InputBegan:Connect(function(input, processed)
     end
 end)
 
--- small helper to change button visuals
-local function updateBtnVisual(btn, on)
-    btn.BackgroundColor3 = on and BTN_ON or BTN_OFF
+-- slider logic
+local dragging = false
+local function setSliderFromX(x)
+    local absPos = sliderBg.AbsolutePosition.X
+    local absSize = sliderBg.AbsoluteSize.X
+    local localX = math.clamp(x - absPos, 0, absSize)
+    local pct = (absSize > 0) and (localX / absSize) or 0
+    sliderFill.Size = UDim2.new(pct, 0, 1, 0)
+    sliderKnob.Position = UDim2.new(pct, -6, 0, 0)
+    range = 1 + pct * 9
+    rangeLabel.Text = ("range: %.1f"):format(range)
+    ESP.range = range
+    getgenv().ESP_SETTINGS = ESP
 end
 
--- backstab button
+sliderKnob.MouseButton1Down:Connect(function() dragging = true end)
+UserInputService.InputChanged:Connect(function(inp)
+    if dragging and inp.UserInputType == Enum.UserInputType.MouseMovement then setSliderFromX(inp.Position.X) end
+end)
+UserInputService.InputEnded:Connect(function(inp)
+    if inp.UserInputType == Enum.UserInputType.MouseButton1 then dragging = false end
+end)
+
+-- left buttons behavior
 backstabBtn.MouseButton1Click:Connect(function()
     enabled = not enabled
     backstabBtn.Text = "backstab: " .. (enabled and "on" or "off")
     updateBtnVisual(backstabBtn, enabled)
 end)
 modeBtn.MouseButton1Click:Connect(function()
-    mode = (mode == "behind") and "around" or "behind"
+    if mode == "behind" then mode = "around" else mode = "behind" end
     modeBtn.Text = ("mode:%s"):format(mode)
     ESP.mode = mode
     getgenv().ESP_SETTINGS = ESP
 end)
 
--- ----------------- Exunys ESP loader / toggler -----------------
--- We'll load the upstream script exactly at runtime so we don't have to copy-paste it here.
--- Best-effort removal/cleanup is attempted on toggle off.
-local EXUNYS_INSTANCE = nil
-local EXUNYS_LOAD_SUCCESS = false
-
-local function try_cleanup_exunys()
-    -- Try various common cleanup calls that well-behaved modules expose.
-    -- We don't assume anything, so wrap each in pcall.
-    if not EXUNYS_INSTANCE then
-        -- try clearing drawing cache if available
-        if cleardrawcache then
-            pcall(function() cleardrawcache() end)
-        end
-        return
-    end
-
-    local inst = EXUNYS_INSTANCE
-
-    -- common names
-    local attempts = {
-        function() if type(inst.Unload) == "function" then inst:Unload() return true end end,
-        function() if type(inst.Destroy) == "function" then inst:Destroy() return true end end,
-        function() if type(inst.Disable) == "function" then inst:Disable() return true end end,
-        function() if type(inst.Toggle) == "function" then inst:Toggle(false) return true end end,
-        function() if type(inst.SetEnabled) == "function" then inst:SetEnabled(false) return true end end,
-        function() if type(inst.DestroyAll) == "function" then inst:DestroyAll() return true end end,
-    }
-
-    for _,fn in ipairs(attempts) do
-        local ok, res = pcall(fn)
-        if ok and res then
-            -- cleanup succeeded via that API
-            EXUNYS_INSTANCE = nil
-            return true
-        end
-    end
-
-    -- fallback: if module returned a table with references to drawings / objects, attempt to nil them
-    pcall(function()
-        for k,v in pairs(inst) do
-            if type(v) == "table" then
-                for kk,vv in pairs(v) do
-                    if typeof(vv) == "Instance" and vv.Parent then
-                        pcall(function() vv:Destroy() end)
-                    end
-                end
-            end
-        end
-    end)
-
-    -- clear any drawing caches if function exists
-    pcall(function() if cleardrawcache then cleardrawcache() end end)
-
-    EXUNYS_INSTANCE = nil
-    return true
-end
-
-local function load_exunys_esp()
-    -- load remote file and execute it; return the module's return if any
-    local ok, result = pcall(function()
-        -- Use HttpGet (some executors require the second argument true)
-        local source = nil
-        -- try a few variations to be robust to executor differences
-        local tries = {
-            function() return game:HttpGet(EXUNYS_ESP_URL, true) end,
-            function() return game:HttpGet(EXUNYS_ESP_URL) end,
-            function() return (syn and syn.request and syn.request{ Url = EXUNYS_ESP_URL, Method = "GET" }.Body) end,
-        }
-        for _,fn in ipairs(tries) do
-            local ok2, res = pcall(fn)
-            if ok2 and type(res) == "string" and #res > 10 then
-                source = res
-                break
-            end
-        end
-        if not source then error("Failed to download Exunys ESP. Check HTTP permissions or executor.") end
-
-        -- run the code in a sandbox; prefer loadstring if available
-        local loaded, chunk = pcall(loadstring, source)
-        if not loaded or not chunk then error("Failed to compile Exunys ESP code") end
-
-        -- execute and capture return (many modules return a table)
-        local ret = nil
-        local status, rv = pcall(function() return chunk() end)
-        if status then ret = rv end
-        return ret
-    end)
-    if ok then
-        EXUNYS_INSTANCE = result
-        EXUNYS_LOAD_SUCCESS = true
-        return true, result
-    else
-        EXUNYS_LOAD_SUCCESS = false
-        warn("Exunys ESP load failed:", result)
-        return false, result
-    end
-end
-
--- Toggle handler for the Exunys button
-exunysBtn.MouseButton1Click:Connect(function()
-    ESP.esp_enabled = not ESP.esp_enabled
-    exunysBtn.Text = ("esp: %s"):format(ESP.esp_enabled and "on" or "off")
-    updateBtnVisual(exunysBtn, ESP.esp_enabled)
-    getgenv().ESP_SETTINGS = ESP
-
-    if ESP.esp_enabled then
-        -- load remote ESP (exact upstream code)
-        local ok, ret = load_exunys_esp()
-        if not ok then
-            warn("Failed to load Exunys ESP:", ret)
-            -- revert toggle
-            ESP.esp_enabled = false
-            exunysBtn.Text = ("esp: %s"):format("off")
-            updateBtnVisual(exunysBtn, false)
-            getgenv().ESP_SETTINGS = ESP
-        end
-    else
-        -- try to cleanup the loaded module
-        local cleaned = pcall(try_cleanup_exunys)
-        if not cleaned then
-            warn("Exunys cleanup attempted but may not have removed everything.")
-        end
-    end
-end)
-
--- initialize visuals
-updateBtnVisual(exunysBtn, ESP.esp_enabled)
 updateBtnVisual(backstabBtn, enabled)
 rangeLabel.Text = ("range: %.1f"):format(range)
 modeBtn.Text = ("mode:%s"):format(mode)
 
--- ----------------- Original backstab detection logic (keeps behavior) -----------------
-local function isBehindTarget(hrp, targetHRP)
-    local dist = (hrp.Position - targetHRP.Position).Magnitude
-    if dist > range then return false end
-    if mode == "around" then return true end
-    local direction = -targetHRP.CFrame.LookVector
-    local toPlayer = (hrp.Position - targetHRP.Position)
-    return toPlayer:Dot(direction) > 0.5
+-- ======= Loader / Toggler for Exunys ESP =======
+local exunys_loaded = ESP.exunys_loaded or false
+local exunys_env = nil -- will hold any returned table/global if exposed
+
+local function safeHttpGet(url)
+    local ok, res = pcall(function() return (syn and syn.request and syn.request({Url = url, Method = "GET"}).Body) or game:HttpGet(url) end)
+    if ok then return res end
+    return nil
 end
 
+local function tryCleanupExunys()
+    -- Best-effort cleanup:
+    -- 1) If the loaded script created common global tables, try to disable/clean them
+    pcall(function()
+        -- common patterns Exunys may use (best-effort)
+        if type(getgenv().Exunys) == "table" and type(getgenv().Exunys.Disconnect) == "function" then
+            pcall(getgenv().Exunys.Disconnect, getgenv().Exunys)
+        end
+        if type(getgenv().ESP) == "table" and type(getgenv().ESP.Destroy) == "function" then
+            pcall(getgenv().ESP.Destroy, getgenv().ESP)
+        end
+        if type(getgenv().ExunysESP) == "table" and type(getgenv().ExunysESP.Destroy) == "function" then
+            pcall(getgenv().ExunysESP.Destroy, getgenv().ExunysESP)
+        end
+        -- try to set common enabled flags to false
+        if getgenv().Exunys and type(getgenv().Exunys) == "table" then getgenv().Exunys.Enabled = false end
+        if getgenv().ESP and type(getgenv().ESP) == "table" then getgenv().ESP.Enabled = false end
+        if getgenv().ExunysESP and type(getgenv().ExunysESP) == "table" then getgenv().ExunysESP.Enabled = false end
+    end)
+    -- 2) clear draw cache if environment exposes it
+    pcall(function()
+        if cleardrawcache then pcall(cleardrawcache) end
+        if typeof(getrenderproperty) == "function" then
+            -- no-op, some environments require a call to refresh rendering; this is best-effort
+            pcall(function() getrenderproperty(nil) end)
+        end
+    end)
+    -- 3) remove overlay children we created or can detect
+    pcall(function()
+        for _,v in ipairs(screenGui:GetChildren()) do
+            if v.Name == "ESPOverlays" or v.Name == "ExunysESP" or v.Name == "ESP" or v.Name == "ESPOverlays" then
+                v:Destroy()
+            end
+        end
+        -- also attempt to remove any Drawing objects stored on globals (best-effort)
+        if type(getgenv().__EXUNYS_DRAWINGS) == "table" then
+            for _,d in pairs(getgenv().__EXUNYS_DRAWINGS) do
+                pcall(function() if d and d.Remove then d:Remove() end end)
+            end
+            getgenv().__EXUNYS_DRAWINGS = nil
+        end
+    end)
+end
+
+espToggleBtn.MouseButton1Click:Connect(function()
+    -- toggle state
+    if not exunys_loaded then
+        -- Try to fetch and execute Exunys ESP script (exact script from raw URL)
+        espToggleBtn.Text = "esp: loading..."
+        updateBtnVisual(espToggleBtn, true)
+        local code = safeHttpGet(EXUNYS_URL)
+        if not code then
+            espToggleBtn.Text = "esp: off"
+            updateBtnVisual(espToggleBtn, false)
+            warn("Failed to download Exunys ESP from URL.")
+            return
+        end
+
+        local ok, err = pcall(function()
+            -- execute with a protected environment so returned globals are still available
+            local func, lerr = loadstring(code)
+            assert(func, lerr)
+            -- run the script
+            func()
+        end)
+        if not ok then
+            espToggleBtn.Text = "esp: off"
+            updateBtnVisual(espToggleBtn, false)
+            warn("Failed to execute Exunys ESP:", err)
+            return
+        end
+
+        exunys_loaded = true
+        ESP.exunys_loaded = true
+        getgenv().ESP_SETTINGS = ESP
+        espToggleBtn.Text = "esp: on"
+        updateBtnVisual(espToggleBtn, true)
+    else
+        -- Attempt to disable/unload the Exunys ESP
+        espToggleBtn.Text = "esp: stopping..."
+        updateBtnVisual(espToggleBtn, false)
+
+        -- best-effort cleanup
+        tryCleanupExunys()
+
+        exunys_loaded = false
+        ESP.exunys_loaded = false
+        getgenv().ESP_SETTINGS = ESP
+        espToggleBtn.Text = "esp: off"
+    end
+end)
+
+-- ======= Backstab tween & stab (unchanged behavior) =======
 local function tweenBehindAndStab(targetHRP, duration)
     if not (lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")) then return end
     local hrp = lp.Character.HumanoidRootPart
@@ -408,17 +396,27 @@ local function tweenBehindAndStab(targetHRP, duration)
     end)
 end
 
--- Main run loop (keeps original detection and auto-backstab)
+-- isBehindTarget (keeps original logic)
+function isBehindTarget(hrp, targetHRP)
+    local dist = (hrp.Position - targetHRP.Position).Magnitude
+    if dist > range then return false end
+    if mode == "around" then return true end
+    local direction = -targetHRP.CFrame.LookVector
+    local toPlayer = (hrp.Position - targetHRP.Position)
+    return toPlayer:Dot(direction) > 0.5
+end
+
+-- Main loop (keeps original backstab search logic; does not duplicate Exunys visuals)
 RunService.RenderStepped:Connect(function()
     local char = lp.Character
     if not (char and char:FindFirstChild("HumanoidRootPart")) then return end
     local hrp = char.HumanoidRootPart
 
-    -- Candidate targets
+    -- Build candidate list same as before
     local killersToCheck = {}
     local killersFolder = workspace:FindFirstChild("Players") and workspace.Players:FindFirstChild("Killers")
     if killersFolder then
-        for _, nm in ipairs({"Jason", "c00lkidd", "JohnDoe", "1x1x1x1", "Noli"}) do
+        for _, nm in ipairs(killerNames) do
             local k = killersFolder:FindFirstChild(nm)
             if k and k:FindFirstChild("HumanoidRootPart") then table.insert(killersToCheck, k) end
         end
@@ -434,11 +432,11 @@ RunService.RenderStepped:Connect(function()
     for _, kobj in ipairs(killersToCheck) do
         local kHRP = kobj and kobj:FindFirstChild("HumanoidRootPart")
         if kHRP then
-            if enabled and not cooldown and isBehindTarget(hrp, kHRP) and kobj ~= lastTarget then
+            if enabled and (not cooldown) and isBehindTarget(hrp, kHRP) and kobj ~= lastTarget then
                 cooldown = true
                 lastTarget = kobj
 
-                tweenBehindAndStab(kHRP, 0.20)
+                tweenBehindAndStab(kHRP, DEFAULTS.tweenDuration)
 
                 task.delay(2, function()
                     RunService.Heartbeat:Wait()
@@ -446,11 +444,15 @@ RunService.RenderStepped:Connect(function()
                     lastTarget = nil
                     cooldown = false
                 end)
-
                 break
             end
         end
     end
 end)
+
+-- Persist visual text & initial states
+espToggleBtn.Text = ("esp: %s"):format(ESP.exunys_loaded and "on" or "off")
+updateBtnVisual(espToggleBtn, ESP.exunys_loaded)
+getgenv().ESP_SETTINGS = ESP
 
 -- End of script
