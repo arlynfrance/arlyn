@@ -227,16 +227,37 @@ local modeBtn = createStyledButton(leftFrame, 128, "Mode: " .. mode, 240)
 
 -- RIGHT: ESP controls
 local espBtn = createStyledButton(rightFrame, 0, "ESP: OFF", 260)
-espBtn.Position = espBtn.Position - UDim2.new(0, 11, 0, 0)
+espBtn.Position = espBtn.Position - UDim2.new(0, 21, 0, 0)
 
 local espInfo = Instance.new("TextLabel", rightFrame)
 espInfo.Size = UDim2.new(0, 260, 0, 20)
-espInfo.Position = UDim2.new(0, -1, 0, 52) -- originally 10, now shifted left by 11
+espInfo.Position = UDim2.new(0, -11, 0, 52) -- originally 10, now shifted left by 11
 espInfo.BackgroundTransparency = 1
 espInfo.TextColor3 = TEXT_COLOR
 espInfo.Font = Enum.Font.Code
-espInfo.TextSize = 13
+espInfo.TextSize = 10
 espInfo.Text = "" -- intentionally blank as requested
+
+-- ESP toggle function
+local espEnabled = false
+
+espBtn.MouseButton1Click:Connect(function()
+    espEnabled = not espEnabled
+
+    if espEnabled then
+        if not getgenv().ExunysDeveloperESP then
+            getgenv().ESPLibrary = loadstring(game:HttpGet("https://raw.githubusercontent.com/Exunys/Exunys-ESP/main/src/ESP.lua"))()
+        end
+        getgenv().ESPLibrary:Load()
+        espBtn.Text = "ESP: ON"
+    else
+        if getgenv().ESPLibrary then
+            getgenv().ESPLibrary:Unload()
+        end
+        espBtn.Text = "ESP: OFF"
+    end
+end)
+
 
 
 -- RightShift toggle for GUI visibility
