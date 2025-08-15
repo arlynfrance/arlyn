@@ -1,44 +1,65 @@
--- Full LocalScript: GUI (matches screenshot) + fixed slider + robust ESP (box, tracer, name, health, distance, team-check) + Backstab (Quad tween)
--- Paste into a LocalScript under StarterPlayerScripts
+-- Full Integrated LocalScript
+-- GUI (matches screenshot) + mobile arrow toggle + dual-ESP (PC Drawing via Exunys, Mobile Highlight-based)
+-- + Backstab logic preserved (Quad tween), Range slider fixed, draggable GUI, RightShift toggle.
+-- Place into StarterPlayerScripts as a LocalScript.
 
--- Services
+-- SERVICES
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
+local HttpService = game:GetService("HttpService")
 
 local lp = Players.LocalPlayer
 local camera = Workspace.CurrentCamera
 
--- === Core backstab vars (behavior preserved) ===
-local enabled = false
+-- ========================
+-- Config / preserved behavior
+-- ========================
+local enabled = false       -- backstab enabled
 local cooldown = false
 local lastTarget = nil
-local range = 7.2
-local mode = "Behind"
+local range = 7.2           -- default range (will be restored from attribute if present)
+local mode = "Behind"       -- "Behind" or "Around"
 local daggerRemote = ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Network"):WaitForChild("RemoteEvent")
 local killerNames = { "Jason", "c00lkidd", "JohnDoe", "1x1x1x1", "Noli" }
 local killersFolder = workspace:WaitForChild("Players"):WaitForChild("Killers")
 
--- restore saved range attribute if present
+-- Restore stored range from attribute if present
 if lp:GetAttribute("BackstabRange") then
 	local attr = lp:GetAttribute("BackstabRange")
 	if type(attr) == "number" then range = attr end
 end
 
--- === GUI colors / style ===
+-- UI Colors
 local BG = Color3.fromRGB(40,40,42)
 local PANEL = Color3.fromRGB(60,60,70)
 local ACCENT = Color3.fromRGB(160,170,200)
 local TEXT = Color3.fromRGB(230,230,230)
 
--- === Build ScreenGui + Main window ===
+-- Platform detection
+local function isMobile()
+	-- Consider touch enabled + not keyboard as mobile
+	local uis = UserInputService
+	return uis.TouchEnabled and not uis.KeyboardEnabled
+end
+local function isPC()
+	local uis = UserInputService
+	return uis.KeyboardEnabled or uis.MouseEnabled
+end
+
+local PLATFORM_IS_MOBILE = isMobile()
+local PLATFORM_IS_PC = not PLATFORM_IS_MOBILE
+
+-- ========================
+-- GUI BUILD
+-- ========================
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "BackstabHubV3"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = lp:WaitForChild("PlayerGui")
-screenGui.Enabled = true
+screenGui.Enabled = true -- fixed visibility issue: start visible
 
 local main = Instance.new("Frame")
 main.Name = "Main"
@@ -49,7 +70,7 @@ main.BorderColor3 = PANEL
 main.BorderSizePixel = 3
 main.Parent = screenGui
 
--- title bar
+-- Title bar
 local title = Instance.new("Frame", main)
 title.Name = "Title"
 title.Size = UDim2.new(1,0,0,30)
@@ -66,14 +87,14 @@ titleLabel.Font = Enum.Font.Code
 titleLabel.TextSize = 18
 titleLabel.TextXAlignment = Enum.TextXAlignment.Left
 
--- divider under title
+-- divider
 local divider = Instance.new("Frame", main)
 divider.Size = UDim2.new(1,0,0,6)
 divider.Position = UDim2.new(0,0,0,30)
 divider.BackgroundColor3 = PANEL
 divider.BorderSizePixel = 0
 
--- left column + right panel
+-- left column & right panel
 local leftCol = Instance.new("Frame", main)
 leftCol.Name = "Left"
 leftCol.Size = UDim2.new(0,170,1,-36)
@@ -97,7 +118,7 @@ leftBg.BorderColor3 = PANEL
 leftBg.BorderSizePixel = 0
 leftBg.ZIndex = main.ZIndex - 1
 
--- small factory function for left buttons
+-- helper for left buttons
 local function makeLeftButton(y, text)
 	local b = Instance.new("TextButton")
 	b.Size = UDim2.new(1,-6,0,30)
@@ -114,10 +135,10 @@ local function makeLeftButton(y, text)
 	return b
 end
 
--- backstab button
+-- Backstab button
 local backstabBtn = makeLeftButton(4, "backstab: off")
 
--- range label (panel style)
+-- Range label (panel style)
 local rangeLabel = Instance.new("TextLabel", leftCol)
 rangeLabel.Size = UDim2.new(1,-6,0,26)
 rangeLabel.Position = UDim2.new(0,3,0,40)
@@ -129,7 +150,7 @@ rangeLabel.Text = "range: " .. tostring(range)
 local rsStroke = Instance.new("UIStroke", rangeLabel)
 rsStroke.Color = Color3.fromRGB(80,80,90)
 
--- slider frame
+-- Slider frame
 local sliderFrame = Instance.new("Frame", leftCol)
 sliderFrame.Size = UDim2.new(1,-12,0,16)
 sliderFrame.Position = UDim2.new(0,6,0,70)
@@ -144,21 +165,21 @@ sliderFill.Position = UDim2.new(0,0,0,0)
 sliderFill.BackgroundColor3 = ACCENT
 sliderFill.BorderSizePixel = 0
 
--- knob: centered anchorpoint (this fixes the alignment problem)
+-- Knob (centered anchor fixes misalignment)
 local knobSizePx = 12
 local sliderKnob = Instance.new("Frame", sliderFrame)
 sliderKnob.Name = "Knob"
 sliderKnob.Size = UDim2.new(0, knobSizePx, 0, knobSizePx)
-sliderKnob.AnchorPoint = Vector2.new(0.5,0.5)        -- IMPORTANT: center anchor
-sliderKnob.Position = UDim2.new((range - 1) / 9, 0, 0.5, 0) -- centered vertically
+sliderKnob.AnchorPoint = Vector2.new(0.5, 0.5)
+sliderKnob.Position = UDim2.new((range - 1) / 9, 0, 0.5, 0)
 sliderKnob.BackgroundColor3 = ACCENT
 local knobCorner = Instance.new("UICorner", sliderKnob)
 knobCorner.CornerRadius = UDim.new(0,4)
 
--- mode button
+-- Mode button
 local modeBtn = makeLeftButton(98, "mode:" .. string.lower(mode))
 
--- ESP button on right panel like screenshot
+-- ESP button (in right panel top left)
 local espBtn = Instance.new("TextButton", rightPanel)
 espBtn.Size = UDim2.new(0,120,0,30)
 espBtn.Position = UDim2.new(0,8,0,8)
@@ -170,61 +191,97 @@ espBtn.TextSize = 16
 local espStroke = Instance.new("UIStroke", espBtn)
 espStroke.Color = Color3.fromRGB(80,80,90)
 
--- === draggable title (robust) ===
+-- Mobile arrow (always visible) bottom center
+local arrowBtn = Instance.new("ImageButton")
+arrowBtn.Name = "MobileArrow"
+arrowBtn.Size = UDim2.new(0,56,0,40)
+arrowBtn.AnchorPoint = Vector2.new(0.5, 1)
+arrowBtn.Position = UDim2.new(0.5, 0, 1, -4) -- bottom center, slight offset
+arrowBtn.Parent = screenGui
+arrowBtn.BackgroundColor3 = Color3.fromRGB(50,50,55)
+arrowBtn.ZIndex = 10
+arrowBtn.Image = "" -- no image by default; use triangle drawn via Frame and UICorner below
+
+-- draw arrow triangle inside
+local tri = Instance.new("Frame", arrowBtn)
+tri.Size = UDim2.new(0,28,0,16)
+tri.Position = UDim2.new(0.5,-14,0.5,-8)
+tri.AnchorPoint = Vector2.new(0,0)
+tri.BackgroundColor3 = ACCENT
+tri.BorderSizePixel = 0
+tri.Rotation = 0
+-- small caret effect using UICorner to look like a rounded triangle-ish rectangle
+local triCorner = Instance.new("UICorner", tri)
+triCorner.CornerRadius = UDim.new(0,4)
+
+-- make arrow always visible on all platforms (user asked)
+arrowBtn.Visible = true
+
+-- Left background z-order fix (so left items appear)
+leftBg.ZIndex = main.ZIndex + 1
+
+-- ========================
+-- Draggable title bar
+-- ========================
 main.Active = true
 local dragging = false
-local dragStartPos = Vector2.new()
+local dragStart = Vector2.new()
 local mainStartPos = UDim2.new()
-title.InputBegan:Connect(function(i)
-	if i.UserInputType == Enum.UserInputType.MouseButton1 then
+title.InputBegan:Connect(function(input)
+	if input.UserInputType == Enum.UserInputType.MouseButton1 then
 		dragging = true
-		dragStartPos = i.Position
+		dragStart = input.Position
 		mainStartPos = main.Position
-		i.Changed:Connect(function()
-			if i.UserInputState == Enum.UserInputState.End then
-				dragging = false
-			end
+		input.Changed:Connect(function()
+			if input.UserInputState == Enum.UserInputState.End then dragging = false end
 		end)
 	end
 end)
-UserInputService.InputChanged:Connect(function(i)
-	if dragging and i.UserInputType == Enum.UserInputType.MouseMovement then
-		local delta = i.Position - dragStartPos
+UserInputService.InputChanged:Connect(function(input)
+	if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
+		local delta = input.Position - dragStart
 		main.Position = UDim2.new(mainStartPos.X.Scale, mainStartPos.X.Offset + delta.X, mainStartPos.Y.Scale, mainStartPos.Y.Offset + delta.Y)
 	end
 end)
 
--- RightShift toggle
-UserInputService.InputBegan:Connect(function(inp, gp)
+-- RightShift toggles GUI on PC
+UserInputService.InputBegan:Connect(function(input, gp)
 	if gp then return end
-	if inp.KeyCode == Enum.KeyCode.RightShift then
+	if input.KeyCode == Enum.KeyCode.RightShift then
 		screenGui.Enabled = not screenGui.Enabled
 	end
 end)
 
--- === slider behavior: 1.0 -> 10.0 with 0.1 step ===
+-- Mobile arrow toggles GUI (always visible)
+arrowBtn.MouseButton1Click:Connect(function()
+	screenGui.Enabled = not screenGui.Enabled
+end)
+
+-- ========================
+-- Slider logic (1.0 -> 10.0, 0.1 steps)
+-- ========================
 local sliding = false
 local function setRangeFromRel(rel)
 	rel = math.clamp(rel, 0, 1)
-	range = math.floor((1 + rel * 9) * 10 + 0.5) / 10 -- round nearest 0.1
-	sliderFill.Size = UDim2.new(rel,0,1,0)
+	-- convert to 1..10
+	local raw = 1 + rel * 9
+	range = math.floor(raw * 10 + 0.5) / 10 -- rounded to 0.1
+	sliderFill.Size = UDim2.new(rel, 0, 1, 0)
 	sliderKnob.Position = UDim2.new(rel, 0, 0.5, 0)
 	rangeLabel.Text = "range: " .. tostring(range)
 	pcall(function() lp:SetAttribute("BackstabRange", range) end)
 end
 
-sliderKnob.InputBegan:Connect(function(i)
-	if i.UserInputType == Enum.UserInputType.MouseButton1 then sliding = true end
-end)
-sliderKnob.InputEnded:Connect(function(i)
-	if i.UserInputType == Enum.UserInputType.MouseButton1 then sliding = false end
-end)
+sliderKnob.InputBegan:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 then sliding = true end end)
+sliderKnob.InputEnded:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 then sliding = false end end)
+
 sliderFrame.InputBegan:Connect(function(i)
 	if i.UserInputType == Enum.UserInputType.MouseButton1 then
 		local relX = math.clamp((i.Position.X - sliderFrame.AbsolutePosition.X) / sliderFrame.AbsoluteSize.X, 0, 1)
 		setRangeFromRel(relX)
 	end
 end)
+
 UserInputService.InputChanged:Connect(function(i)
 	if sliding and i.UserInputType == Enum.UserInputType.MouseMovement then
 		local relX = math.clamp((i.Position.X - sliderFrame.AbsolutePosition.X) / sliderFrame.AbsoluteSize.X, 0, 1)
@@ -235,7 +292,9 @@ end)
 -- initialize visuals
 setRangeFromRel((range - 1) / 9)
 
--- === button bindings for backstab & mode ===
+-- ========================
+-- Button behaviors (backstab/mode)
+-- ========================
 backstabBtn.MouseButton1Click:Connect(function()
 	enabled = not enabled
 	backstabBtn.Text = "backstab: " .. (enabled and "on" or "off")
@@ -247,35 +306,139 @@ modeBtn.MouseButton1Click:Connect(function()
 	modeBtn.Text = "mode:" .. string.lower(mode)
 end)
 
--- === ESP Implementation (self-contained) ===
--- Features: Highlight outline, BillboardGui (name, health, distance), 2D bounding box, tracer line, team-check
-local espEnabled = false
-local espState = {
-	players = {}, -- [player] = { highlight, billboard, boxParts, tracer, updateConn, charConn }
-	playerAddedConn = nil
+-- ========================
+-- Dual ESP: PC (Exunys Drawing) & Mobile (Highlight-based)
+-- ========================
+
+-- ---- PC ESP loader/manager ----
+local PC_ESP = {
+	loaded = false,
+	loadedReturn = nil, -- whatever chunk returns
+	-- try different toggles: expected patterns: returnedModule.Toggle(bool), returnedModule.Enabled = bool,
+	-- or global variables like _G.ESPEnabled/_G.ESPVisible or global "ESP" table.
 }
 
--- team-check default off; set to true if you want friendly filtering
-local ESP_TEAM_CHECK = false
+local PC_ESP_URL = "https://raw.githubusercontent.com/Exunys/Exunys-ESP/main/src/ESP.lua"
 
-local function makeESPForPlayer(plr)
+local function pc_enable()
+	-- try to load if needed
+	if not PC_ESP.loaded then
+		local ok, raw = pcall(function() return game:HttpGet(PC_ESP_URL) end)
+		if not ok or type(raw) ~= "string" or raw == "" then
+			warn("BackstabHub: Could not fetch PC ESP (HttpGet failed).")
+			return false
+		end
+
+		local compileOk, chunk = pcall(function()
+			return loadstring and loadstring(raw) or load(raw)
+		end)
+		if not compileOk or type(chunk) ~= "function" then
+			warn("BackstabHub: Failed to compile PC ESP chunk.")
+			return false
+		end
+
+		local runOk, returned = pcall(function()
+			-- run chunk; some ESPs return a module/table, others set globals
+			return chunk()
+		end)
+		if not runOk then
+			warn("BackstabHub: Error while running PC ESP chunk:", returned)
+			return false
+		end
+
+		PC_ESP.loaded = true
+		PC_ESP.loadedReturn = returned
+	end
+
+	-- now try to enable in many ways:
+	-- 1) if returned is table and has Toggle
+	if type(PC_ESP.loadedReturn) == "table" then
+		local ret = PC_ESP.loadedReturn
+		if type(ret.Toggle) == "function" then
+			pcall(function() ret.Toggle(true) end)
+			return true
+		elseif type(ret.Enable) == "function" then
+			pcall(function() ret.Enable() end)
+			return true
+		elseif ret.Enabled ~= nil then
+			pcall(function() ret.Enabled = true end)
+			return true
+		end
+	end
+
+	-- 2) check common globals
+	local g = _G
+	if g.ESPVisible ~= nil then
+		pcall(function() g.ESPVisible = true end)
+		return true
+	end
+	if g.ESPEnabled ~= nil then
+		pcall(function() g.ESPEnabled = true end)
+		return true
+	end
+	if g.Exunys and type(g.Exunys.Toggle) == "function" then
+		pcall(function() g.Exunys.Toggle(true) end)
+		return true
+	end
+	-- 3) check for returned function directly
+	if type(PC_ESP.loadedReturn) == "function" then
+		-- some scripts return a function to start; call it
+		pcall(function() PC_ESP.loadedReturn(true) end)
+		-- we cannot be 100% sure but return true anyway
+		return true
+	end
+
+	-- If we got here, we attempted but couldn't find a control point. We'll attempt to set common globals that ESP scripts might observe:
+	pcall(function() _G.ESPVisible = true end)
+	pcall(function() _G.ESPEnabled = true end)
+	-- success is uncertain:
+	return true
+end
+
+local function pc_disable()
+	-- try to disable gracefully
+	if type(PC_ESP.loadedReturn) == "table" then
+		local ret = PC_ESP.loadedReturn
+		if type(ret.Toggle) == "function" then
+			pcall(function() ret.Toggle(false) end)
+			return true
+		elseif ret.Enabled ~= nil then
+			pcall(function() ret.Enabled = false end)
+			return true
+		end
+	end
+	-- try globals
+	pcall(function() _G.ESPVisible = false end)
+	pcall(function() _G.ESPEnabled = false end)
+	return true
+end
+
+-- ---- Mobile Highlight-based ESP (self-contained; mirrors PC visual features) ----
+local mobileESP = {
+	enabled = false,
+	players = {}, -- map player -> data (highlight, billboard, box frames, tracer, conn)
+	playerAddedConn = nil
+}
+local MOBILE_ESP_TEAM_CHECK = false -- change to true to avoid showing teammates
+
+local function createMobileESPForPlayer(plr)
 	if not plr or plr == lp then return end
-	if espState.players[plr] then return end
+	if mobileESP.players[plr] then return end
 	if not plr.Character then return end
 	local char = plr.Character
 	local hrp = char:FindFirstChild("HumanoidRootPart")
 	local hum = char:FindFirstChildOfClass("Humanoid")
 	if not hrp or not hum then return end
 
-	-- Highlight (3D)
-	local highlight = Instance.new("Highlight")
-	highlight.Adornee = char
-	highlight.FillTransparency = 0.8
-	highlight.OutlineTransparency = 0
-	highlight.OutlineColor = (plr.Team and lp.Team and plr.Team == lp.Team) and Color3.fromRGB(120,120,120) or Color3.fromRGB(255,255,255)
-	highlight.Parent = Workspace -- place in workspace to render properly
+	-- Highlight as "chams"
+	local hl = Instance.new("Highlight")
+	hl.Adornee = char
+	hl.FillTransparency = 0.7
+	hl.OutlineTransparency = 0
+	hl.OutlineColor = Color3.new(1,1,1)
+	hl.Parent = Workspace
 
-	-- Billboard (name, health, dist)
+	-- Billboard for name/health/distance
 	local bill = Instance.new("BillboardGui")
 	bill.Adornee = hrp
 	bill.Size = UDim2.new(0,160,0,56)
@@ -316,12 +479,11 @@ local function makeESPForPlayer(plr)
 	distLabel.TextColor3 = Color3.new(1,1,1)
 	distLabel.Text = ""
 
-	-- 2D bounding box frames (top, left, right, bottom)
+	-- 2D box frames in screenGui
 	local boxTop = Instance.new("Frame", screenGui)
 	boxTop.BackgroundColor3 = ACCENT
 	boxTop.Size = UDim2.new(0,0,0,2)
 	boxTop.BorderSizePixel = 0
-	boxTop.Visible = true
 
 	local boxBottom = Instance.new("Frame", screenGui)
 	boxBottom.BackgroundColor3 = ACCENT
@@ -336,87 +498,75 @@ local function makeESPForPlayer(plr)
 	boxRight.BackgroundColor3 = ACCENT
 	boxRight.Size = UDim2.new(0,2,0,0)
 
-	-- tracer (thin frame rotated)
 	local tracer = Instance.new("Frame", screenGui)
 	tracer.BackgroundColor3 = ACCENT
 	tracer.BorderSizePixel = 0
-	tracer.AnchorPoint = Vector2.new(0.5, 1) -- anchor at bottom center
-	tracer.Size = UDim2.new(0,2,0,0) -- height updated live
+	tracer.AnchorPoint = Vector2.new(0.5, 1)
+	tracer.Size = UDim2.new(0,2,0,0)
 	tracer.Visible = true
 
-	-- update closure
 	local conn = RunService.RenderStepped:Connect(function()
-		if not espEnabled then return end
+		if not mobileESP.enabled then return end
 		if not plr.Parent or not plr.Character then return end
 		local ch = plr.Character
-		local h = ch:FindFirstChild("Humanoid")
-		local hroot = ch:FindFirstChild("HumanoidRootPart") or ch:FindFirstChild("Torso") or ch:FindFirstChild("UpperTorso")
+		local hr = ch:FindFirstChild("HumanoidRootPart")
 		local head = ch:FindFirstChild("Head")
-		if not hroot or not head then
-			-- hide visuals until character valid
+		local h = ch:FindFirstChildOfClass("Humanoid")
+		if not hr or not head then
 			boxTop.Visible = boxBottom.Visible = boxLeft.Visible = boxRight.Visible = false
 			tracer.Visible = false
 			bill.Enabled = false
-			highlight.Enabled = false
+			hl.Enabled = false
 			return
 		end
 
-		-- Team check
-		if ESP_TEAM_CHECK and plr.Team and lp.Team and plr.Team == lp.Team then
-			-- hide if same team
+		-- team check
+		if MOBILE_ESP_TEAM_CHECK and plr.Team and lp.Team and plr.Team == lp.Team then
 			boxTop.Visible = boxBottom.Visible = boxLeft.Visible = boxRight.Visible = false
 			tracer.Visible = false
 			bill.Enabled = false
-			highlight.Enabled = false
+			hl.Enabled = false
 			return
 		end
 
-		highlight.Enabled = true
+		hl.Enabled = true
 		bill.Enabled = true
 
-		-- update health bar
+		-- update health
 		if h then
-			local pct = math.clamp(h.Health / math.max(h.MaxHealth, 1), 0, 1)
-			healthBar.Size = UDim2.new(pct, 0, 1, 0)
+			local pct = math.clamp(h.Health / math.max(h.MaxHealth,1), 0, 1)
+			healthBar.Size = UDim2.new(pct,0,1,0)
 		end
 
-		-- compute 2D box projection using head and root
+		-- compute 2D box
 		local headPos = head.Position
-		local rootPos = hroot.Position
+		local rootPos = hr.Position
 		local headScreen, headOn = camera:WorldToViewportPoint(headPos)
 		local rootScreen, rootOn = camera:WorldToViewportPoint(rootPos)
-
-		-- if either is behind camera, hide
 		if not headOn and not rootOn then
 			boxTop.Visible = boxBottom.Visible = boxLeft.Visible = boxRight.Visible = false
 			tracer.Visible = false
 			bill.Enabled = false
-			highlight.Enabled = false
+			hl.Enabled = false
 			return
 		end
 
-		-- viewport coordinates (pixels)
 		local hx, hy = headScreen.X, headScreen.Y
 		local rx, ry = rootScreen.X, rootScreen.Y
-
-		-- box center & height estimate
 		local boxHeight = math.max(20, math.abs(ry - hy))
 		local boxWidth = math.max(12, boxHeight * 0.5)
-
 		local centerX = (hx + rx) / 2
 		local topY = math.min(hy, ry) - math.max(8, boxHeight * 0.15)
 		local bottomY = math.max(hy, ry) + math.max(8, boxHeight * 0.05)
-
 		local leftX = centerX - boxWidth/2
 		local rightX = centerX + boxWidth/2
 		local height = math.max(12, bottomY - topY)
 
-		-- set box frames (position in pixels)
 		boxTop.Position = UDim2.new(0, leftX, 0, topY)
-		boxTop.Size = UDim2.new(0, (rightX - leftX), 0, 2)
+		boxTop.Size = UDim2.new(0, rightX - leftX, 0, 2)
 
 		boxBottom.Position = UDim2.new(0, leftX, 0, bottomY - 2)
-		boxBottom.Size = UDim2.new(0, (rightX - leftX), 0, 2)
+		boxBottom.Size = UDim2.new(0, rightX - leftX, 0, 2)
 
 		boxLeft.Position = UDim2.new(0, leftX, 0, topY)
 		boxLeft.Size = UDim2.new(0, 2, 0, height)
@@ -426,23 +576,22 @@ local function makeESPForPlayer(plr)
 
 		boxTop.Visible = boxBottom.Visible = boxLeft.Visible = boxRight.Visible = true
 
-		-- update billboard content (distance)
+		-- update distance display
 		local myHrp = lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")
-		if myHrp and hroot then
-			local d = (hroot.Position - myHrp.Position).Magnitude
+		if myHrp and hr then
+			local d = (hr.Position - myHrp.Position).Magnitude
 			distLabel.Text = string.format("%.1fm", d)
 		end
 
-		-- tracer: draw from bottom-center of screen to target center (centerX, bottomY)
+		-- tracer
 		local viewport = camera.ViewportSize
 		local sx, sy = viewport.X * 0.5, viewport.Y - 8
 		local tx, ty = centerX, topY + height * 0.5
 		local dx, dy = tx - sx, ty - sy
 		local length = math.sqrt(dx*dx + dy*dy)
-		-- position tracer at (sx, sy) with height length, rotated to angle
 		if length > 2 then
 			tracer.Visible = true
-			local angle = math.deg(math.atan2(dy, dx)) - 90 -- frame rotation offset
+			local angle = math.deg(math.atan2(dy, dx)) - 90
 			tracer.Size = UDim2.new(0, 2, 0, length)
 			tracer.Position = UDim2.new(0, sx, 0, sy)
 			tracer.AnchorPoint = Vector2.new(0.5, 1)
@@ -452,21 +601,17 @@ local function makeESPForPlayer(plr)
 		end
 	end)
 
-	-- store and return
-	espState.players[plr] = {
-		highlight = highlight,
+	mobileESP.players[plr] = {
+		highlight = hl,
 		bill = bill,
-		boxTop = boxTop,
-		boxBottom = boxBottom,
-		boxLeft = boxLeft,
-		boxRight = boxRight,
+		boxTop = boxTop, boxBottom = boxBottom, boxLeft = boxLeft, boxRight = boxRight,
 		tracer = tracer,
 		conn = conn
 	}
 end
 
-local function removeESPForPlayer(plr)
-	local data = espState.players[plr]
+local function removeMobileESPForPlayer(plr)
+	local data = mobileESP.players[plr]
 	if not data then return end
 	pcall(function()
 		if data.conn and data.conn.Disconnect then data.conn:Disconnect() end
@@ -478,73 +623,92 @@ local function removeESPForPlayer(plr)
 		if data.boxRight and data.boxRight.Parent then data.boxRight:Destroy() end
 		if data.tracer and data.tracer.Parent then data.tracer:Destroy() end
 	end)
-	espState.players[plr] = nil
+	mobileESP.players[plr] = nil
 end
 
-local function enableESP()
-	if espEnabled then return end
-	espEnabled = true
-	-- create for current players
+local function enableMobileESP()
+	if mobileESP.enabled then return end
+	mobileESP.enabled = true
 	for _,p in ipairs(Players:GetPlayers()) do
 		if p ~= lp and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
-			makeESPForPlayer(p)
+			createMobileESPForPlayer(p)
 		end
-		-- character added handling
+		-- ensure respawn handling
 		p.CharacterAdded:Connect(function(char)
-			-- small wait for hrp
 			task.wait(0.05)
-			if espEnabled and p ~= lp and char:FindFirstChild("HumanoidRootPart") then
-				removeESPForPlayer(p)
-				makeESPForPlayer(p)
+			if mobileESP.enabled and p ~= lp and char:FindFirstChild("HumanoidRootPart") then
+				removeMobileESPForPlayer(p)
+				createMobileESPForPlayer(p)
 			end
 		end)
 	end
-	-- player added
-	if not espState.playerAddedConn then
-		espState.playerAddedConn = Players.PlayerAdded:Connect(function(plr)
+	if not mobileESP.playerAddedConn then
+		mobileESP.playerAddedConn = Players.PlayerAdded:Connect(function(plr)
 			plr.CharacterAdded:Connect(function(char)
 				task.wait(0.05)
-				if espEnabled and plr ~= lp and char:FindFirstChild("HumanoidRootPart") then
-					makeESPForPlayer(plr)
+				if mobileESP.enabled and plr ~= lp and char:FindFirstChild("HumanoidRootPart") then
+					createMobileESPForPlayer(plr)
 				end
 			end)
 		end)
 	end
 end
 
-local function disableESP()
-	if not espEnabled then return end
-	espEnabled = false
-	-- disconnect player added conn
-	if espState.playerAddedConn then
-		espState.playerAddedConn:Disconnect()
-		espState.playerAddedConn = nil
+local function disableMobileESP()
+	if not mobileESP.enabled then return end
+	mobileESP.enabled = false
+	if mobileESP.playerAddedConn then mobileESP.playerAddedConn:Disconnect() mobileESP.playerAddedConn = nil end
+	for p,_ in pairs(mobileESP.players) do
+		removeMobileESPForPlayer(p)
 	end
-	-- remove all player visuals
-	for plr, _ in pairs(espState.players) do
-		removeESPForPlayer(plr)
-	end
-	espState.players = {}
+	mobileESP.players = {}
 end
 
+-- Unified toggle (button handler will call this)
+local currentESPMode = nil -- "PC" or "MOBILE"
+local function enableESPUnified()
+	if PLATFORM_IS_PC then
+		currentESPMode = "PC"
+		local ok = pc_enable()
+		-- fallback to Mobile if PC enabling failed
+		if not ok then
+			currentESPMode = "MOBILE"
+			enableMobileESP()
+		end
+	else
+		currentESPMode = "MOBILE"
+		enableMobileESP()
+	end
+end
+local function disableESPUnified()
+	if currentESPMode == "PC" then
+		pc_disable()
+	elseif currentESPMode == "MOBILE" then
+		disableMobileESP()
+	else
+		-- try both
+		pc_disable()
+		disableMobileESP()
+	end
+end
+
+-- ESP button press
 espBtn.MouseButton1Click:Connect(function()
-	if not espEnabled then
+	local turningOn = (espBtn.Text:find("off") ~= nil)
+	if turningOn then
 		espBtn.Text = "esp: on"
 		espBtn.BackgroundColor3 = ACCENT
-		enableESP()
+		enableESPUnified()
 	else
 		espBtn.Text = "esp: off"
 		espBtn.BackgroundColor3 = PANEL
-		disableESP()
+		disableESPUnified()
 	end
 end)
 
--- cleanup safety
-local function cleanupAll()
-	disableESP()
-end
-
--- === helper: isBehindTarget (keeps your logic) ===
+-- ========================
+-- Helper: isBehindTarget (unchanged)
+-- ========================
 local function isBehindTarget(hrp, targetHRP)
 	local distance = (hrp.Position - targetHRP.Position).Magnitude
 	if distance > range then return false end
@@ -554,7 +718,9 @@ local function isBehindTarget(hrp, targetHRP)
 	return toPlayer:Dot(direction) > 0.5
 end
 
--- === Main backstab loop (unchanged behavior; uses Quad tween) ===
+-- ========================
+-- Main Backstab Loop (Quad tween keeps behavior)
+-- ========================
 RunService.Heartbeat:Connect(function()
 	if not enabled or cooldown then return end
 	local char = lp.Character
@@ -581,7 +747,7 @@ RunService.Heartbeat:Connect(function()
 						if connection then connection:Disconnect() end
 						return
 					end
-					-- tween behind target (Quad easing preserved)
+					-- tween behind target (Quad easing)
 					local behindPos = kHRP.Position - (kHRP.CFrame.LookVector * 0.3)
 					local targetCFrame = CFrame.new(behindPos, behindPos + kHRP.CFrame.LookVector)
 					local tweenInfo = TweenInfo.new(0.1, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
@@ -616,4 +782,6 @@ RunService.Heartbeat:Connect(function()
 	end
 end)
 
+-- ========================
 -- End of script
+-- ========================
