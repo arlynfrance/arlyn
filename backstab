@@ -222,43 +222,6 @@ knob.AutoButtonColor = false
 local knobCorner = Instance.new("UICorner", knob); knobCorner.CornerRadius = UDim.new(0, 10)
 local knobStroke = Instance.new("UIStroke", knob); knobStroke.Color = OUTLINE_COLOR; knobStroke.Thickness = 1
 
--- Slider dragging logic
-local UserInputService = game:GetService("UserInputService")
-local dragging = false
-local MAX_RANGE = 10 -- your max range value
-
-local function updateSlider(inputX)
-    local sliderWidth = sliderBack.AbsoluteSize.X
-    local relativeX = math.clamp(inputX - sliderBack.AbsolutePosition.X, 0, sliderWidth)
-    local percent = relativeX / sliderWidth
-    local rangeValue = math.floor(percent * (MAX_RANGE - 1) + 1)
-
-    -- Update visuals
-    sliderFill.Size = UDim2.new(percent, 0, 1, 0)
-    knob.Position = UDim2.new(percent, 0, 0.5, 0)
-
-    -- Apply to variable
-    range = rangeValue
-end
-
-knob.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = true
-    end
-end)
-
-UserInputService.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 then
-        dragging = false
-    end
-end)
-
-UserInputService.InputChanged:Connect(function(input)
-    if dragging and input.UserInputType == Enum.UserInputType.MouseMovement then
-        updateSlider(input.Position.X)
-    end
-end)
-
 -- Mode button
 local modeBtn = createStyledButton(leftFrame, 128, "Mode: " .. mode, 240)
 
@@ -275,13 +238,16 @@ espInfo.Font = Enum.Font.Code
 espInfo.TextSize = 10
 espInfo.Text = "" -- intentionally blank as requested
 
--- ESP toggle logic
+-- ESP toggle function
 local espEnabled = false
+
 espBtn.MouseButton1Click:Connect(function()
     espEnabled = not espEnabled
 
     if espEnabled then
-        getgenv().ESPLibrary = loadstring(game:HttpGet("https://raw.githubusercontent.com/Exunys/Exunys-ESP/main/src/ESP.lua"))()
+        if not getgenv().ExunysDeveloperESP then
+            getgenv().ESPLibrary = loadstring(game:HttpGet("https://raw.githubusercontent.com/Exunys/Exunys-ESP/main/src/ESP.lua"))()
+        end
         getgenv().ESPLibrary:Load()
         espBtn.Text = "ESP: ON"
     else
@@ -291,7 +257,6 @@ espBtn.MouseButton1Click:Connect(function()
         espBtn.Text = "ESP: OFF"
     end
 end)
-
 
 
 
