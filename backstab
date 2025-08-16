@@ -463,14 +463,7 @@ espBtn.MouseButton1Click:Connect(function()
     end
 end)
 
--- ===== Smooth Backstab Implementation (uses slider 'range' 1..10) =====
-local function smoothMoveTo(part, targetCFrame, duration)
-    local info = TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
-    local tw = TweenService:Create(part, info, {CFrame = targetCFrame})
-    tw:Play()
-    return tw
-end
-
+-- ===== Instant Backstab Implementation (old logic) =====
 local function isValidKiller(k)
     if not k then return false end
     if not k:FindFirstChild("HumanoidRootPart") then return false end
@@ -479,7 +472,7 @@ local function isValidKiller(k)
     return true
 end
 
--- The main smooth backstab loop
+-- The main backstab loop
 RunService.RenderStepped:Connect(function()
     if not backstabEnabled or cooldown then return end
     if not lp then return end
@@ -504,9 +497,8 @@ RunService.RenderStepped:Connect(function()
                 -- target cframe that faces the killer
                 local targetCF = CFrame.new(behindPos, kHRP.Position)
 
-                -- smooth move
-                local tw = smoothMoveTo(hrp, targetCF, 0.28)
-                tw.Completed:Wait()
+                -- instant move (old backstab)
+                lp.Character:PivotTo(targetCF)
 
                 -- attempt to fire dagger / stab remote (safe pcall)
                 pcall(function()
