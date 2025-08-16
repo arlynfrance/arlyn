@@ -463,16 +463,7 @@ espBtn.MouseButton1Click:Connect(function()
     end
 end)
 
--- ===== Instant Backstab Implementation (old logic) =====
-local function isValidKiller(k)
-    if not k then return false end
-    if not k:FindFirstChild("HumanoidRootPart") then return false end
-    if not k:FindFirstChild("Humanoid") then return false end
-    if k.Humanoid.Health <= 0 then return false end
-    return true
-end
-
--- The main backstab loop
+-- ===== Old "Legit Mode" Backstab Implementation =====
 RunService.RenderStepped:Connect(function()
     if not backstabEnabled or cooldown then return end
     if not lp then return end
@@ -483,22 +474,23 @@ RunService.RenderStepped:Connect(function()
 
     for _, name in ipairs(killerNames) do
         local killer = killersFolder:FindFirstChild(name)
-        if isValidKiller(killer) then
+        if killer 
+            and killer:FindFirstChild("HumanoidRootPart") 
+            and killer:FindFirstChild("Humanoid") 
+            and killer.Humanoid.Health > 0 
+        then
             local kHRP = killer.HumanoidRootPart
             local dist = (hrp.Position - kHRP.Position).Magnitude
             if dist <= range then
                 cooldown = true
                 lastTarget = killer
 
-                -- compute behind position
-                local behindOffset = (mode == "Around") and 1.5 or 2
-                local behindPos = kHRP.Position - (kHRP.CFrame.LookVector * behindOffset)
-
-                -- target cframe that faces the killer
+                -- compute legit mode position (right behind the target)
+                local behindPos = kHRP.Position - (kHRP.CFrame.LookVector * 2)
                 local targetCF = CFrame.new(behindPos, kHRP.Position)
 
-                -- instant move (old backstab)
-                lp.Character:PivotTo(targetCF)
+                -- instantly move behind
+                hrp.CFrame = targetCF
 
                 -- attempt to fire dagger / stab remote (safe pcall)
                 pcall(function()
@@ -524,6 +516,7 @@ RunService.RenderStepped:Connect(function()
         end
     end
 end)
+
 
 -- ===== Final runtime notes =====
 if not drawingAvailable then
