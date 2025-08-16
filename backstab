@@ -463,7 +463,7 @@ espBtn.MouseButton1Click:Connect(function()
     end
 end)
 
--- ===== Legit Mode Backstab with Reliable Easing =====
+-- ===== Legit Mode Backstab with Reliable Easing + Stick Behind Killer =====
 local function quickEasedMove(part, targetCFrame, duration)
     if not part then return end
     local info = TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
@@ -493,17 +493,17 @@ RunService.RenderStepped:Connect(function()
                 cooldown = true
                 lastTarget = killer
 
-                -- compute legit mode position
+                -- compute starting behind position
                 local behindPos = kHRP.Position - (kHRP.CFrame.LookVector * 2)
                 local targetCF = CFrame.new(behindPos, kHRP.Position)
 
-                -- safety: force final position after tween
+                -- smooth move first
                 local tw = quickEasedMove(hrp, targetCF, 0.12)
                 if tw then
                     tw.Completed:Wait()
-                    hrp.CFrame = targetCF -- force exact placement after tween
+                    hrp.CFrame = targetCF
                 else
-                    hrp.CFrame = targetCF -- fallback if tween fails
+                    hrp.CFrame = targetCF
                 end
 
                 -- try firing dagger/stab
@@ -514,13 +514,25 @@ RunService.RenderStepped:Connect(function()
                     end
                 end)
 
-                -- cooldown reset handling
-                task.wait(0.26)
+                -- stick behind killer until cooldown reset
+                local stickConnection
+                stickConnection = RunService.RenderStepped:Connect(function()
+                    if not killer or not killer.Parent or killer.Humanoid.Health <= 0 then
+                        stickConnection:Disconnect()
+                        return
+                    end
+                    -- Update behind position each frame so you follow their movement
+                    local followBehind = kHRP.Position - (kHRP.CFrame.LookVector * 2)
+                    hrp.CFrame = CFrame.new(followBehind, kHRP.Position)
+                end)
+
+                -- cooldown reset
                 task.spawn(function()
                     task.wait(0.35)
                     while killer and killer.Parent and (hrp.Position - kHRP.Position).Magnitude <= range do
                         task.wait(0.12)
                     end
+                    if stickConnection then stickConnection:Disconnect() end
                     lastTarget = nil
                     cooldown = false
                 end)
