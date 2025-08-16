@@ -264,6 +264,7 @@ local modeBtn = createStyledButton(leftFrame, 128, "Mode: " .. mode, 240)
 
 -- ESP Toggle Vars
 local espEnabled = false
+local espSource = game:HttpGet("https://raw.githubusercontent.com/Exunys/Exunys-ESP/main/src/ESP.lua")
 
 -- RIGHT: ESP controls
 local espBtn = createStyledButton(rightFrame, 0, "ESP: OFF", 260)
@@ -283,8 +284,7 @@ espBtn.MouseButton1Click:Connect(function()
     espEnabled = not espEnabled
 
     if espEnabled then
-        -- Always reload a fresh copy when turning ON
-        getgenv().ESPLibrary = loadstring(game:HttpGet("https://raw.githubusercontent.com/Exunys/Exunys-ESP/main/src/ESP.lua"))()
+        getgenv().ESPLibrary = loadstring(espSource)() -- load from stored source
         getgenv().ESPLibrary:Load()
         espBtn.Text = "ESP: ON"
     else
@@ -295,6 +295,7 @@ espBtn.MouseButton1Click:Connect(function()
         espBtn.Text = "ESP: OFF"
     end
 end)
+
 
 
 -- RightShift toggle for GUI visibility
