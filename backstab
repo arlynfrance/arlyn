@@ -463,7 +463,15 @@ espBtn.MouseButton1Click:Connect(function()
     end
 end)
 
--- ===== Old "Legit Mode" Backstab Implementation =====
+-- ===== Legit Mode Backstab with Reliable Easing =====
+local function quickEasedMove(part, targetCFrame, duration)
+    if not part then return end
+    local info = TweenInfo.new(duration, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+    local tw = TweenService:Create(part, info, {CFrame = targetCFrame})
+    tw:Play()
+    return tw
+end
+
 RunService.RenderStepped:Connect(function()
     if not backstabEnabled or cooldown then return end
     if not lp then return end
@@ -485,14 +493,20 @@ RunService.RenderStepped:Connect(function()
                 cooldown = true
                 lastTarget = killer
 
-                -- compute legit mode position (right behind the target)
+                -- compute legit mode position
                 local behindPos = kHRP.Position - (kHRP.CFrame.LookVector * 2)
                 local targetCF = CFrame.new(behindPos, kHRP.Position)
 
-                -- instantly move behind
-                hrp.CFrame = targetCF
+                -- safety: force final position after tween
+                local tw = quickEasedMove(hrp, targetCF, 0.12)
+                if tw then
+                    tw.Completed:Wait()
+                    hrp.CFrame = targetCF -- force exact placement after tween
+                else
+                    hrp.CFrame = targetCF -- fallback if tween fails
+                end
 
-                -- attempt to fire dagger / stab remote (safe pcall)
+                -- try firing dagger/stab
                 pcall(function()
                     if daggerRemote then
                         pcall(function() daggerRemote:FireServer("UseActorAbility", "Dagger") end)
@@ -500,7 +514,7 @@ RunService.RenderStepped:Connect(function()
                     end
                 end)
 
-                -- small delay then wait until they leave range to reset cooldown
+                -- cooldown reset handling
                 task.wait(0.26)
                 task.spawn(function()
                     task.wait(0.35)
