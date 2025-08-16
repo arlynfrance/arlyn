@@ -262,6 +262,10 @@ end)
 -- Mode button
 local modeBtn = createStyledButton(leftFrame, 128, "Mode: " .. mode, 240)
 
+-- ESP Toggle Vars
+local espEnabled = false
+local espConnections = {}
+
 -- RIGHT: ESP controls
 local espBtn = createStyledButton(rightFrame, 0, "ESP: OFF", 260)
 espBtn.Position = espBtn.Position - UDim2.new(0, 21, 0, 0)
@@ -273,7 +277,39 @@ espInfo.BackgroundTransparency = 1
 espInfo.TextColor3 = TEXT_COLOR
 espInfo.Font = Enum.Font.Code
 espInfo.TextSize = 10
-espInfo.Text = "" -- intentionally blank as requested
+espInfo.Text = "" -- intentionally blank
+
+-- Function to start ESP drawing
+local function startESP()
+    if espConnections.mainLoop then return end -- already running
+    espConnections.mainLoop = RunService.RenderStepped:Connect(function()
+        -- put your ESP drawing logic here, e.g.:
+        for _, killer in ipairs(workspace.Players.Killers:GetChildren()) do
+            -- update or draw ESP box/line for killer
+        end
+    end)
+end
+
+-- Function to stop ESP drawing
+local function stopESP()
+    if espConnections.mainLoop then
+        espConnections.mainLoop:Disconnect()
+        espConnections.mainLoop = nil
+    end
+end
+
+-- Toggle button
+espBtn.MouseButton1Click:Connect(function()
+    espEnabled = not espEnabled
+    espBtn.Text = "ESP: " .. (espEnabled and "ON" or "OFF")
+    
+    if espEnabled then
+        startESP()
+    else
+        stopESP()
+    end
+end)
+
 
 -- ESP toggle logic
 local espEnabled = false
