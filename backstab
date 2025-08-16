@@ -463,52 +463,100 @@ espBtn.MouseButton1Click:Connect(function()
     end
 end)
 
--- ===== New Backstab Logic (with Tween 360 Flick) =====
-local function backstabKiller(killer)
-    local char = lp.Character
-    if not (char and char:FindFirstChild("HumanoidRootPart")) then return end
-    local hrp = char.HumanoidRootPart
-    local kHRP = killer:FindFirstChild("HumanoidRootPart")
-    if not kHRP then return end
+-- // Backstab Logic
+local TweenService = game:GetService("TweenService")
+local RunService = game:GetService("RunService")
 
-    -- Step 1: Tween 360 flick (spin HRP around its Y-axis)
-    local spinCFrame = hrp.CFrame * CFrame.Angles(0, math.rad(360), 0)
-    local spinTween = TweenService:Create(hrp, TweenInfo.new(
-        0.25, -- duration (fast but noticeable)
-        Enum.EasingStyle.Quad,
-        Enum.EasingDirection.Out
-    ), { CFrame = spinCFrame })
-    spinTween:Play()
-    spinTween.Completed:Wait()
+local range = 4 -- stud distance behind killer
+local flickSpeed = 0.15 -- seconds for the 360 camera flick
+local tpSpeed = 0.2 -- seconds to tween behind killer
+local cooldownTime = 30 -- cooldown in seconds
 
-    -- Step 2: Teleport 4 studs behind killer while facing them
-    local behindPos = kHRP.Position - (kHRP.CFrame.LookVector * 4)
-    hrp.CFrame = CFrame.new(behindPos, kHRP.Position)
+local onCooldown = false
 
-    -- Step 3: Fire dagger immediately
-    daggerRemote:FireServer("UseActorAbility", "Dagger")
+local function backstab(killer)
+	if onCooldown then return end
+	if not (lp.Character and lp.Character:FindFirstChild("HumanoidRootPart")) then return end
+	local hrp = lp.Character.HumanoidRootPart
+	local kHRP = killer:FindFirstChild("HumanoidRootPart")
+	if not kHRP then return end
+
+	onCooldown = true
+
+	-- Step 1: Camera flick (360 spin to the right)
+	local cam = workspace.CurrentCamera
+	local startCFrame = cam.CFrame
+	local spin = Instance.new("CFrameValue")
+	spin.Value = startCFrame
+
+	local spinTween = TweenService:Create(spin, TweenInfo.new(flickSpeed, Enum.EasingStyle.Linear), {
+		Value = startCFrame * CFrame.Angles(0, math.rad(360), 0)
+	})
+
+	spinTween:Play()
+	spinTween.Completed:Wait()
+	cam.CFrame = startCFrame -- reset after flick
+
+	-- Step 2: Tween player behind killer
+	local behindPos = kHRP.Position - (kHRP.CFrame.LookVector * range)
+	local goalCFrame = CFrame.new(behindPos, kHRP.Position)
+
+	local cframeVal = Instance.new("CFrameValue")
+	cframeVal.Value = hrp.CFrame
+
+	local tpTween = TweenService:Create(cframeVal, TweenInfo.new(tpSpeed, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
+		Value = goalCFrame
+	})
+
+	local conn
+	conn = cframeVal.Changed:Connect(function(cf)
+		if hrp.Parent then
+			hrp.CFrame = cf
+		else
+			if conn then conn:Disconnect() end
+		end
+	end)
+
+	tpTween:Play()
+	tpTween.Completed:Wait()
+	if conn then conn:Disconnect() end
+
+	-- Step 3: Fire dagger ability
+	local success = false
+	local ok, err = pcall(function()
+		daggerRemote:FireServer("UseActorAbility", "Dagger")
+		success = true
+	end)
+	if not success then
+		pcall(function() daggerRemote:FireServer("Stab", killer) end)
+		pcall(function() daggerRemote:FireServer("Backstab", killer) end)
+	end
+
+	-- Step 4: Start cooldown
+	task.delay(cooldownTime, function()
+		onCooldown = false
+	end)
 end
 
--- ===== Loop to check for killers =====
+-- // Main Loop
 RunService.Heartbeat:Connect(function()
-    if not enabled then return end
+	if not enabled or onCooldown then return end
+	local char = lp.Character
+	if not (char and char:FindFirstChild("HumanoidRootPart")) then return end
+	local hrp = char.HumanoidRootPart
 
-    local char = lp.Character
-    if not (char and char:FindFirstChild("HumanoidRootPart")) then return end
-    local hrp = char.HumanoidRootPart
-
-    for _, name in ipairs(killerNames) do
-        local killer = killersFolder:FindFirstChild(name)
-        if killer and killer:FindFirstChild("HumanoidRootPart") then
-            local distance = (hrp.Position - killer.HumanoidRootPart.Position).Magnitude
-            if distance <= range then
-                backstabKiller(killer)
-                task.wait(1) -- cooldown so it doesn’t spam
-                break
-            end
-        end
-    end
+	for _, name in ipairs(killerNames) do
+		local killer = killersFolder:FindFirstChild(name)
+		if killer and killer:FindFirstChild("HumanoidRootPart") then
+			local distance = (hrp.Position - killer.HumanoidRootPart.Position).Magnitude
+			if distance <= range + 2 then -- within trigger distance
+				backstab(killer)
+				break
+			end
+		end
+	end
 end)
+
 
 
 
