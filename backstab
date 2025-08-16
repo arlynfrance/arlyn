@@ -462,8 +462,7 @@ espBtn.MouseButton1Click:Connect(function()
         unwrapDrawingNew()
     end
 end)
-
--- Main loop (with 360 camera spin + clean behind stab)
+-- Main loop (new backstab logic with 360 spin + stab)
 RunService.Heartbeat:Connect(function()
 	if not enabled or cooldown then return end
 
@@ -481,25 +480,28 @@ RunService.Heartbeat:Connect(function()
 				cooldown = true
 				lastTarget = killer
 
-				-- Do a 360 spin before stabbing
+				-- 360° Camera spin before stabbing
 				local cam = workspace.CurrentCamera
 				if cam then
 					local startCF = cam.CFrame
-					local goalCF = startCF * CFrame.Angles(0, math.rad(360), 0)
-					local spinTween = TweenService:Create(cam, TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut), {CFrame = goalCF})
+					local spinTween = TweenService:Create(
+						cam,
+						TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.InOut),
+						{CFrame = startCF * CFrame.Angles(0, math.rad(360), 0)}
+					)
 					spinTween:Play()
 					spinTween.Completed:Wait()
 				end
 
-				-- Teleport behind killer + face them
+				-- Snap behind killer & face them
 				local behindPos = kHRP.Position - (kHRP.CFrame.LookVector * 0.5)
 				hrp.CFrame = CFrame.new(behindPos, kHRP.Position)
 
-				-- Fire dagger
+				-- Fire dagger (two calls for reliability)
 				daggerRemote:FireServer("UseActorAbility", "Dagger")
 				daggerRemote:FireServer("Stab", killer)
 
-				-- Stay behind + face until short delay expires
+				-- Keep facing behind killer for ~0.7s
 				local faceStart = tick()
 				local faceConn
 				faceConn = RunService.Heartbeat:Connect(function()
@@ -507,7 +509,10 @@ RunService.Heartbeat:Connect(function()
 						if faceConn then faceConn:Disconnect() end
 						return
 					end
-					hrp.CFrame = CFrame.new(kHRP.Position - (kHRP.CFrame.LookVector * 0.5), kHRP.Position)
+					hrp.CFrame = CFrame.new(
+						kHRP.Position - (kHRP.CFrame.LookVector * 0.5),
+						kHRP.Position
+					)
 				end)
 
 				-- Reset cooldown once killer leaves range
@@ -524,6 +529,7 @@ RunService.Heartbeat:Connect(function()
 		end
 	end
 end)
+
 
 
 
