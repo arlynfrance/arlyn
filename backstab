@@ -3,11 +3,10 @@ local Players = game:GetService("Players")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local lp = Players.LocalPlayer
-local uis = game:GetService("UserInputService")
 
 --// Vars
 local range = 4
-local backstabEnabled = false
+local enabled = false
 local cooldown = false
 local lastTarget = nil
 local mode = "Behind"
@@ -15,58 +14,29 @@ local daggerRemote = ReplicatedStorage:WaitForChild("Modules"):WaitForChild("Net
 local killerNames = { "Jason", "c00lkidd", "JohnDoe", "1x1x1x1", "Noli" }
 local killersFolder = workspace:WaitForChild("Players"):WaitForChild("Killers")
 
-local espEnabled = false
-local espObjects = {}
-local espRange = 50
-
 --// GUI Setup
 local screenGui = Instance.new("ScreenGui")
 screenGui.Parent = lp:WaitForChild("PlayerGui")
 
--- Backstab Toggle Button
-local backstabButton = Instance.new("TextButton")
-backstabButton.Size = UDim2.new(0, 150, 0, 40)
-backstabButton.Position = UDim2.new(0, 10, 0, 10)
-backstabButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-backstabButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-backstabButton.Font = Enum.Font.SourceSansBold
-backstabButton.TextSize = 20
-backstabButton.Text = "Backstab: OFF"
-backstabButton.Parent = screenGui
+local toggleButton = Instance.new("TextButton")
+toggleButton.Size = UDim2.new(0, 150, 0, 40)
+toggleButton.Position = UDim2.new(0, 10, 0, 10)
+toggleButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+toggleButton.TextColor3 = Color3.fromRGB(255, 255, 255)
+toggleButton.Font = Enum.Font.SourceSansBold
+toggleButton.TextSize = 20
+toggleButton.Text = "Backstab: OFF"
+toggleButton.Parent = screenGui
 
-backstabButton.MouseButton1Click:Connect(function()
-	backstabEnabled = not backstabEnabled
-	backstabButton.Text = "Backstab: " .. (backstabEnabled and "ON" or "OFF")
-	backstabButton.BackgroundColor3 = backstabEnabled and Color3.fromRGB(50, 150, 50) or Color3.fromRGB(30, 30, 30)
+toggleButton.MouseButton1Click:Connect(function()
+	enabled = not enabled
+	toggleButton.Text = "Backstab: " .. (enabled and "ON" or "OFF")
+	toggleButton.BackgroundColor3 = enabled and Color3.fromRGB(50, 150, 50) or Color3.fromRGB(30, 30, 30)
 end)
 
--- ESP Toggle Button
-local espButton = Instance.new("TextButton")
-espButton.Size = UDim2.new(0, 150, 0, 40)
-espButton.Position = UDim2.new(0, 10, 0, 55)
-espButton.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-espButton.TextColor3 = Color3.fromRGB(255, 255, 255)
-espButton.Font = Enum.Font.SourceSansBold
-espButton.TextSize = 20
-espButton.Text = "ESP: OFF"
-espButton.Parent = screenGui
-
-espButton.MouseButton1Click:Connect(function()
-	espEnabled = not espEnabled
-	espButton.Text = "ESP: " .. (espEnabled and "ON" or "OFF")
-	espButton.BackgroundColor3 = espEnabled and Color3.fromRGB(50, 150, 50) or Color3.fromRGB(30, 30, 30)
-	if not espEnabled then
-		for _, obj in ipairs(espObjects) do
-			if obj and obj.Parent then obj:Destroy() end
-		end
-		table.clear(espObjects)
-	end
-end)
-
--- Mode Button
 local modeButton = Instance.new("TextButton")
 modeButton.Size = UDim2.new(0, 150, 0, 25)
-modeButton.Position = UDim2.new(0, 10, 0, 100)
+modeButton.Position = UDim2.new(0, 10, 0, 55)
 modeButton.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
 modeButton.TextColor3 = Color3.fromRGB(255, 255, 255)
 modeButton.Font = Enum.Font.SourceSans
@@ -75,14 +45,18 @@ modeButton.Text = "Mode: Behind"
 modeButton.Parent = screenGui
 
 modeButton.MouseButton1Click:Connect(function()
-	mode = (mode == "Behind") and "Around" or "Behind"
+	if mode == "Behind" then
+		mode = "Around"
+	else
+		mode = "Behind"
+	end
 	modeButton.Text = "Mode: " .. mode
 end)
 
--- Range Slider
+-- Slider for range
 local sliderBack = Instance.new("Frame", screenGui)
 sliderBack.Size = UDim2.new(0, 240, 0, 14)
-sliderBack.Position = UDim2.new(0, 10, 0, 135)
+sliderBack.Position = UDim2.new(0, 10, 0, 90)
 sliderBack.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
 sliderBack.BorderSizePixel = 0
 local sliderCorner = Instance.new("UICorner", sliderBack)
@@ -110,6 +84,7 @@ local function updateSlider(val)
 end
 
 knob.MouseButton1Down:Connect(function()
+	local uis = game:GetService("UserInputService")
 	local moveConn, releaseConn
 	moveConn = uis.InputChanged:Connect(function(input)
 		if input.UserInputType == Enum.UserInputType.MouseMovement then
@@ -125,7 +100,7 @@ knob.MouseButton1Down:Connect(function()
 	end)
 end)
 
--- Backstab Helper
+-- Helper
 local function isBehindTarget(hrp, targetHRP)
 	local distance = (hrp.Position - targetHRP.Position).Magnitude
 	if distance > range then return false end
@@ -134,3 +109,32 @@ local function isBehindTarget(hrp, targetHRP)
 	local toPlayer = (hrp.Position - targetHRP.Position)
 	return toPlayer:Dot(direction) > 0.5
 end
+
+-- Main loop (old backstab logic)
+RunService.Heartbeat:Connect(function()
+	if not enabled or cooldown then return end
+	local char = lp.Character
+	if not (char and char:FindFirstChild("HumanoidRootPart")) then return end
+	local hrp = char.HumanoidRootPart
+
+	for _, name in ipairs(killerNames) do
+		local killer = killersFolder:FindFirstChild(name)
+		if killer and killer:FindFirstChild("HumanoidRootPart") then
+			local kHRP = killer.HumanoidRootPart
+			if isBehindTarget(hrp, kHRP) and killer ~= lastTarget then
+				cooldown = true
+				lastTarget = killer
+				local start = tick()
+				local didDagger = false
+				local connection
+				connection = RunService.Heartbeat:Connect(function()
+					if not (char and char.Parent and kHRP and kHRP.Parent) then
+						if connection then connection:Disconnect() end
+						return
+					end
+					if tick() - start >= 0.5 then
+						if connection then connection:Disconnect() end
+						return
+					end
+					local behindPos = kHRP.Position - (kHRP.CFrame.LookVector * 0.3)
+					hrp.CFrame = CFrame.new(behindPos, behindPos +
